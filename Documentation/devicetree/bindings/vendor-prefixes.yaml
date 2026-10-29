@@ -1287,6 +1287,8 @@ patternProperties:
     description: OSD Displays
   "^osmc,.*":
     description: Sam Nazarko Trading Ltd. (Open Source Media Centre)
+  "^osom,.*":
+    description: OSOM Products Inc.
   "^ouya,.*":
     description: Ouya Inc.
   "^overkiz,.*":
