@@ -143,6 +143,11 @@
 	compatible = "qcom,sm8475-gpucc";
 };
 
+/* The PCIe0 PHY takes a different init sequence from SM8450's */
+&pcie0_phy {
+	compatible = "qcom,sm8475-qmp-gen3x1-pcie-phy";
+};
+
 &ufs_mem_hc {
 	freq-table-hz =
 		<75000000 850000000>,
