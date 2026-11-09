@@ -36,6 +36,12 @@ module_param_named(dbg_wcn_cbc, ath11k_dbg_wcn_cbc, bool, 0644);
 MODULE_PARM_DESC(dbg_wcn_cbc,
 		 "DEBUG: on the first firmware init done, run a cold boot calibration and power cycle the device before mission mode (Default: false)");
 
+/* DEBUG: host capability nm_modem override, -1 keeps the driver's choice */
+static int ath11k_dbg_nm_modem = -1;
+module_param_named(dbg_nm_modem, ath11k_dbg_nm_modem, int, 0644);
+MODULE_PARM_DESC(dbg_nm_modem,
+		 "DEBUG: nm_modem bits to send in the host capabilities, -1 for the default (Default: -1)");
+
 static const struct qmi_elem_info qmi_wlanfw_host_cap_req_msg_v01_ei[] = {
 	{
 		.data_type	= QMI_OPT_FLAG,
@@ -1764,7 +1770,14 @@ int ath11k_qmi_host_cap_send(struct ath11k_base *ab)
 
 	req.nm_modem |= PLATFORM_CAP_PCIE_PME_D3COLD;
 
-	ath11k_dbg(ab, ATH11K_DBG_QMI, "host cap request\n");
+	/* DEBUG: override the platform bits, e.g. 0 for a Qualcomm SoC host */
+	if (ath11k_dbg_nm_modem >= 0) {
+		req.nm_modem_valid = 1;
+		req.nm_modem = ath11k_dbg_nm_modem;
+	}
+
+	ath11k_dbg(ab, ATH11K_DBG_QMI, "host cap request nm_modem valid %u 0x%x\n",
+		   req.nm_modem_valid, req.nm_modem);
 
 	ret = qmi_txn_init(&ab->qmi.handle, &txn,
 			   qmi_wlanfw_host_cap_resp_msg_v01_ei, &resp);

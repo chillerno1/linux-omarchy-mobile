@@ -1120,6 +1120,12 @@ void ath11k_fw_stats_free(struct ath11k_fw_stats *stats)
 	ath11k_fw_stats_bcn_free(&stats->bcn);
 }
 
+/* DEBUG: ask for the single MAC hw mode instead of DBS */
+static bool ath11k_dbg_single_mac;
+module_param_named(dbg_single_mac, ath11k_dbg_single_mac, bool, 0644);
+MODULE_PARM_DESC(dbg_single_mac,
+		 "DEBUG: set the single MAC hw mode instead of DBS on single pdev chips (Default: false)");
+
 bool ath11k_core_coldboot_cal_support(struct ath11k_base *ab)
 {
 	if (!ath11k_cold_boot_cal)
@@ -2215,7 +2221,12 @@ static int ath11k_core_start(struct ath11k_base *ab)
 
 	/* put hardware to DBS mode */
 	if (ab->hw_params.single_pdev_only && ab->hw_params.num_rxdma_per_pdev > 1) {
-		ret = ath11k_wmi_set_hw_mode(ab, WMI_HOST_HW_MODE_DBS);
+		/* DEBUG: optionally keep a single MAC instead */
+		if (ath11k_dbg_single_mac)
+			ath11k_info(ab, "DEBUG: setting single MAC hw mode instead of DBS\n");
+		ret = ath11k_wmi_set_hw_mode(ab, ath11k_dbg_single_mac ?
+					     WMI_HOST_HW_MODE_SINGLE :
+					     WMI_HOST_HW_MODE_DBS);
 		if (ret) {
 			ath11k_err(ab, "failed to send dbs mode: %d\n", ret);
 			goto err_hif_stop;
