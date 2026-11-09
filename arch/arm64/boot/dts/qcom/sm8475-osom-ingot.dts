@@ -5,6 +5,10 @@
  * Bring-up description: the display, touch, the buttons, UFS and USB 2.0 in
  * peripheral mode. The GPU, the remote processors and the radios stay off
  * until each is brought up on its own.
+ *
+ * Audio: a WCD938x codec for the analog microphones on the RX and TX
+ * SoundWire buses, and two WSA883x speaker amplifiers on the WSA bus. The
+ * second WSA bus and its macro are unused.
  */
 
 /dts-v1/;
@@ -13,6 +17,7 @@
 #include <dt-bindings/leds/common.h>
 #include <dt-bindings/pinctrl/qcom,pmic-gpio.h>
 #include <dt-bindings/regulator/qcom,rpmh-regulator.h>
+#include <dt-bindings/sound/qcom,q6dsp-lpass-ports.h>
 
 #include "sm8475.dtsi"
 #include "pm8350.dtsi"
@@ -38,6 +43,32 @@
 
 	aliases {
 		serial1 = &uart20;
+	};
+
+	wcd938x: audio-codec {
+		compatible = "qcom,wcd9385-codec";
+
+		pinctrl-0 = <&wcd_default>;
+		pinctrl-names = "default";
+
+		qcom,micbias1-microvolt = <1800000>;
+		qcom,micbias2-microvolt = <1800000>;
+		qcom,micbias3-microvolt = <1800000>;
+		qcom,micbias4-microvolt = <1800000>;
+		qcom,mbhc-buttons-vthreshold-microvolt = <75000 150000 237000 500000 500000 500000 500000 500000>;
+		qcom,mbhc-headset-vthreshold-microvolt = <1700000>;
+		qcom,mbhc-headphone-vthreshold-microvolt = <50000>;
+		qcom,rx-device = <&wcd_rx>;
+		qcom,tx-device = <&wcd_tx>;
+
+		reset-gpios = <&tlmm 43 GPIO_ACTIVE_LOW>;
+
+		vdd-buck-supply = <&vreg_s10b_1p8>;
+		vdd-rxtx-supply = <&vreg_s10b_1p8>;
+		vdd-io-supply = <&vreg_s10b_1p8>;
+		vdd-mic-bias-supply = <&vreg_bob>;
+
+		#sound-dai-cells = <1>;
 	};
 
 	chosen {
@@ -251,6 +282,13 @@
 			regulator-min-microvolt = <1904000>;
 			regulator-max-microvolt = <1904000>;
 			regulator-always-on;
+		};
+
+		vreg_bob: bob {
+			regulator-name = "vreg_bob";
+			regulator-min-microvolt = <3008000>;
+			regulator-max-microvolt = <3960000>;
+			regulator-initial-mode = <RPMH_REGULATOR_MODE_AUTO>;
 		};
 
 		vreg_l3c_3p0: ldo3 {
@@ -484,6 +522,126 @@
 	status = "okay";
 };
 
+&sound {
+	compatible = "qcom,sm8475-sndcard", "qcom,sm8450-sndcard";
+	model = "SM8475-Solana-Saga";
+	audio-routing = "SpkrLeft IN", "WSA_SPK1 OUT",
+			"SpkrRight IN", "WSA_SPK2 OUT",
+			"IN1_HPHL", "HPHL_OUT",
+			"IN2_HPHR", "HPHR_OUT",
+			"AMIC1", "MIC BIAS1",
+			"AMIC2", "MIC BIAS2",
+			"AMIC3", "MIC BIAS3",
+			"AMIC4", "MIC BIAS3",
+			"AMIC5", "MIC BIAS4",
+			"TX SWR_INPUT0", "ADC1_OUTPUT",
+			"TX SWR_INPUT1", "ADC2_OUTPUT",
+			"TX SWR_INPUT0", "ADC3_OUTPUT",
+			"TX SWR_INPUT1", "ADC4_OUTPUT";
+
+	wcd-playback-dai-link {
+		link-name = "WCD Playback";
+
+		cpu {
+			sound-dai = <&q6apmbedai RX_CODEC_DMA_RX_0>;
+		};
+
+		codec {
+			sound-dai = <&wcd938x 0>, <&swr1 0>, <&rxmacro 0>;
+		};
+
+		platform {
+			sound-dai = <&q6apm>;
+		};
+	};
+
+	wcd-capture-dai-link {
+		link-name = "WCD Capture";
+
+		cpu {
+			sound-dai = <&q6apmbedai TX_CODEC_DMA_TX_3>;
+		};
+
+		codec {
+			sound-dai = <&wcd938x 1>, <&swr2 0>, <&txmacro 0>;
+		};
+
+		platform {
+			sound-dai = <&q6apm>;
+		};
+	};
+
+	wsa-dai-link {
+		link-name = "WSA Playback";
+
+		cpu {
+			sound-dai = <&q6apmbedai WSA_CODEC_DMA_RX_0>;
+		};
+
+		codec {
+			sound-dai = <&left_spkr>, <&right_spkr>, <&swr0 0>, <&wsamacro 0>;
+		};
+
+		platform {
+			sound-dai = <&q6apm>;
+		};
+	};
+};
+
+&swr0 {
+	status = "okay";
+
+	left_spkr: speaker@0,1 {
+		compatible = "sdw10217020200";
+		reg = <0 1>;
+
+		pinctrl-0 = <&spkr_1_sd_n_default>;
+		pinctrl-names = "default";
+
+		powerdown-gpios = <&tlmm 1 GPIO_ACTIVE_LOW>;
+		vdd-supply = <&vreg_s10b_1p8>;
+
+		#sound-dai-cells = <0>;
+		sound-name-prefix = "SpkrLeft";
+		#thermal-sensor-cells = <0>;
+	};
+
+	right_spkr: speaker@0,2 {
+		compatible = "sdw10217020200";
+		reg = <0 2>;
+
+		pinctrl-0 = <&spkr_2_sd_n_default>;
+		pinctrl-names = "default";
+
+		powerdown-gpios = <&tlmm 89 GPIO_ACTIVE_LOW>;
+		vdd-supply = <&vreg_s10b_1p8>;
+
+		#sound-dai-cells = <0>;
+		sound-name-prefix = "SpkrRight";
+		#thermal-sensor-cells = <0>;
+	};
+};
+
+&swr1 {
+	status = "okay";
+
+	wcd_rx: codec@0,4 {
+		compatible = "sdw20217010d00";
+		reg = <0 4>;
+		qcom,rx-port-mapping = <1 2 3 4 5>;
+	};
+};
+
+&swr2 {
+	status = "okay";
+
+	wcd_tx: codec@0,3 {
+		compatible = "sdw20217010d00";
+		reg = <0 3>;
+		qcom,tx-port-mapping = <1 1 2 3>;
+	};
+};
+
 &tlmm {
 	gpio-reserved-ranges = <36 4>;
 
@@ -514,6 +672,22 @@
 		function = "mdp_vsync";
 		drive-strength = <2>;
 		bias-pull-down;
+	};
+
+	spkr_1_sd_n_default: spkr-1-sd-n-default-state {
+		pins = "gpio1";
+		function = "gpio";
+		drive-strength = <16>;
+		bias-disable;
+		output-low;
+	};
+
+	spkr_2_sd_n_default: spkr-2-sd-n-default-state {
+		pins = "gpio89";
+		function = "gpio";
+		drive-strength = <16>;
+		bias-disable;
+		output-low;
 	};
 
 	ts_int_default: ts-int-default-state {
@@ -561,6 +735,14 @@
 			function = "qup20";
 			bias-disable;
 		};
+	};
+
+	wcd_default: wcd-reset-n-active-state {
+		pins = "gpio43";
+		function = "gpio";
+		drive-strength = <16>;
+		bias-disable;
+		output-low;
 	};
 
 	wlan_en: wlan-en-state {
@@ -637,5 +819,10 @@
 &usb_1_hsphy {
 	vdd-supply = <&vreg_l5b_0p88>;
 	vdda12-supply = <&vreg_l10c_1p2>;
+	status = "okay";
+};
+
+/* The VA macro provides the frame sync clock the other macros run from */
+&vamacro {
 	status = "okay";
 };
