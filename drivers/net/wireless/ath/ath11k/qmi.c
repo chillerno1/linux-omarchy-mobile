@@ -34,7 +34,7 @@ MODULE_PARM_DESC(cold_boot_cal,
 static bool ath11k_dbg_wcn_cbc;
 module_param_named(dbg_wcn_cbc, ath11k_dbg_wcn_cbc, bool, 0644);
 MODULE_PARM_DESC(dbg_wcn_cbc,
-		 "DEBUG: on the first FW ready, run a cold boot calibration and power cycle the device before mission mode (Default: false)");
+		 "DEBUG: on the first firmware init done, run a cold boot calibration and power cycle the device before mission mode (Default: false)");
 
 static const struct qmi_elem_info qmi_wlanfw_host_cap_req_msg_v01_ei[] = {
 	{
@@ -3304,6 +3304,16 @@ static void ath11k_qmi_driver_event_work(struct work_struct *work)
 			break;
 		case ATH11K_QMI_EVENT_FW_INIT_DONE:
 			clear_bit(ATH11K_FLAG_QMI_FAIL, &ab->dev_flags);
+			/*
+			 * DEBUG: this firmware reports "init done", never
+			 * "firmware ready", so calibrate from here.
+			 */
+			if (ath11k_dbg_wcn_cbc && !ab->qmi.dbg_cbc_started &&
+			    !test_bit(ATH11K_FLAG_REGISTERED, &ab->dev_flags)) {
+				ab->qmi.dbg_cbc_started = true;
+				ath11k_qmi_dbg_wcn_cbc(ab);
+				break;
+			}
 			if (test_bit(ATH11K_FLAG_REGISTERED, &ab->dev_flags)) {
 				if (ab->is_reset)
 					ath11k_hal_dump_srng_stats(ab);
@@ -3328,12 +3338,6 @@ static void ath11k_qmi_driver_event_work(struct work_struct *work)
 
 			break;
 		case ATH11K_QMI_EVENT_FW_READY:
-			if (ath11k_dbg_wcn_cbc && !ab->qmi.dbg_cbc_started) {
-				ab->qmi.dbg_cbc_started = true;
-				ath11k_qmi_dbg_wcn_cbc(ab);
-				break;
-			}
-
 			/* For targets requiring a FW restart upon cold
 			 * boot completion, there is no need to process
 			 * FW ready; such targets will receive FW init
