@@ -68,6 +68,15 @@
 		};
 	};
 
+	/*
+	 * The ADSP firmware owns the charger and the fuel gauge. The USB-C
+	 * connector is left out for now so nothing here takes part in USB
+	 * role switching.
+	 */
+	pmic-glink {
+		compatible = "qcom,sm8450-pmic-glink", "qcom,pmic-glink";
+	};
+
 	reserved-memory {
 		/* Stock's layout, so either system reads the other's last console */
 		ramoops@f1400000 {
@@ -449,6 +458,11 @@
 
 &pon_resin {
 	linux,code = <KEY_VOLUMEDOWN>;
+	status = "okay";
+};
+
+&remoteproc_adsp {
+	firmware-name = "qcom/sm8475/osom/ingot/adsp.mdt";
 	status = "okay";
 };
 
