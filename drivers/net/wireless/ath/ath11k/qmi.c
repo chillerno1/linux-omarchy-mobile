@@ -30,6 +30,12 @@ module_param_named(cold_boot_cal, ath11k_cold_boot_cal, bool, 0644);
 MODULE_PARM_DESC(cold_boot_cal,
 		 "Decrease the channel switch time but increase the driver load time (Default: true)");
 
+/* DEBUG: vendor-style cold boot calibration, see ath11k_qmi_dbg_wcn_cbc() */
+static bool ath11k_dbg_wcn_cbc;
+module_param_named(dbg_wcn_cbc, ath11k_dbg_wcn_cbc, bool, 0644);
+MODULE_PARM_DESC(dbg_wcn_cbc,
+		 "DEBUG: on the first FW ready, run a cold boot calibration and power cycle the device before mission mode (Default: false)");
+
 static const struct qmi_elem_info qmi_wlanfw_host_cap_req_msg_v01_ei[] = {
 	{
 		.data_type	= QMI_OPT_FLAG,
@@ -3204,6 +3210,45 @@ static const struct qmi_ops ath11k_qmi_ops = {
 	.del_server = ath11k_qmi_ops_del_server,
 };
 
+/*
+ * DEBUG: the vendor driver boots this chip once in calibration mode on
+ * every power-up, waits for the cold boot calibration to finish, powers
+ * the device off and on, and only then starts mission mode with
+ * cal_done set in the host capabilities. Do the same here.
+ */
+static void ath11k_qmi_dbg_wcn_cbc(struct ath11k_base *ab)
+{
+	unsigned long start = jiffies;
+	long time_left;
+	int ret;
+
+	ab->qmi.cal_done = 0;
+
+	ret = ath11k_qmi_wlanfw_mode_send(ab, ATH11K_FIRMWARE_MODE_COLD_BOOT);
+	if (ret < 0) {
+		ath11k_warn(ab, "DEBUG: failed to send cold boot calibration mode: %d\n",
+			    ret);
+		ab->qmi.cal_done = 1;
+		return;
+	}
+
+	ath11k_info(ab, "DEBUG: cold boot calibration started\n");
+
+	time_left = wait_event_timeout(ab->qmi.cold_boot_waitq,
+				       ab->qmi.cal_done == 1,
+				       ATH11K_COLD_BOOT_FW_RESET_DELAY);
+
+	ath11k_info(ab, "DEBUG: cold boot calibration %s after %u ms, power cycling\n",
+		    time_left > 0 ? "done" : "timed out",
+		    jiffies_to_msecs(jiffies - start));
+
+	ab->qmi.cal_done = 1;
+	ath11k_hif_power_down(ab, false);
+	ret = ath11k_hif_power_up(ab);
+	if (ret)
+		ath11k_warn(ab, "DEBUG: power up after calibration failed: %d\n", ret);
+}
+
 static void ath11k_qmi_driver_event_work(struct work_struct *work)
 {
 	struct ath11k_qmi *qmi = container_of(work, struct ath11k_qmi,
@@ -3283,6 +3328,12 @@ static void ath11k_qmi_driver_event_work(struct work_struct *work)
 
 			break;
 		case ATH11K_QMI_EVENT_FW_READY:
+			if (ath11k_dbg_wcn_cbc && !ab->qmi.dbg_cbc_started) {
+				ab->qmi.dbg_cbc_started = true;
+				ath11k_qmi_dbg_wcn_cbc(ab);
+				break;
+			}
+
 			/* For targets requiring a FW restart upon cold
 			 * boot completion, there is no need to process
 			 * FW ready; such targets will receive FW init

@@ -144,6 +144,8 @@ struct ath11k_qmi {
 	struct m3_mem_region m3_mem;
 	unsigned int service_ins_id;
 	wait_queue_head_t cold_boot_waitq;
+	/* DEBUG: vendor-style cold boot calibration already run */
+	bool dbg_cbc_started;
 };
 
 #define QMI_WLANFW_HOST_CAP_REQ_MSG_V01_MAX_LEN		261
