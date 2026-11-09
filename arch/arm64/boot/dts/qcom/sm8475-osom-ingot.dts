@@ -36,6 +36,10 @@
 	compatible = "osom,ingot", "qcom,sm8475";
 	chassis-type = "handset";
 
+	aliases {
+		serial1 = &uart20;
+	};
+
 	chosen {
 		#address-cells = <2>;
 		#size-cells = <2>;
