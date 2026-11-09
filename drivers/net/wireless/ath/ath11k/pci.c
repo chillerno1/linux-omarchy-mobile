@@ -654,7 +654,7 @@ static int ath11k_pci_coredump_calculate_size(struct ath11k_base *ab, u32 *dump_
 
 	fw_img = mhi_ctrl->fbc_image;
 
-	for (i = 0; i < fw_img->entries ; i++) {
+	for (i = 0; fw_img && i < fw_img->entries ; i++) {
 		if (!fw_img->mhi_buf[i].buf)
 			continue;
 
@@ -754,7 +754,7 @@ static void ath11k_pci_coredump_download(struct ath11k_base *ab)
 	/* append all segments together as they are all part of a single contiguous
 	 * block of memory
 	 */
-	for (i = 0; i < fw_img->entries ; i++) {
+	for (i = 0; fw_img && i < fw_img->entries ; i++) {
 		if (!fw_img->mhi_buf[i].buf)
 			continue;
 

@@ -2538,6 +2538,9 @@ static void ath11k_core_reset(struct work_struct *work)
 
 	if (!(test_bit(ATH11K_FLAG_REGISTERED, &ab->dev_flags))) {
 		ath11k_warn(ab, "ignore reset dev flags 0x%lx\n", ab->dev_flags);
+		/* DEBUG: keep the RDDM dump of a crash during bring-up too */
+		ath11k_warn(ab, "DEBUG: collecting a coredump of the crash before registration\n");
+		ath11k_coredump_collect(ab);
 		return;
 	}
 
