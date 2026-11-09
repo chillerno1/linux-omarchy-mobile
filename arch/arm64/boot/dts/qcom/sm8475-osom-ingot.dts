@@ -394,6 +394,14 @@
 };
 
 &pcie0 {
+	/*
+	 * DEBUG: deliver MSIs through the DWC controller's own MSI block
+	 * (msi0..msi7) instead of the GIC ITS, to tell a broken ITS MSI path
+	 * apart from a device that never finishes its DMA.
+	 */
+	/delete-property/ msi-map;
+	/delete-property/ msi-map-mask;
+
 	max-link-speed = <2>;
 
 	status = "okay";
