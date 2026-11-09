@@ -394,6 +394,8 @@ struct ath11k_vif {
 	} u;
 
 	bool is_started;
+	/* DEBUG: WMM parameters held back until the vdev is started */
+	bool dbg_wmm_pending;
 	bool is_up;
 	bool ftm_responder;
 	bool spectral_enabled;

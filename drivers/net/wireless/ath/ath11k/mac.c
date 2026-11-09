@@ -5491,6 +5491,37 @@ static int ath11k_mac_op_conf_tx_mu_edca(struct ieee80211_hw *hw,
 	return ret;
 }
 
+/*
+ * DEBUG: the QCA6490 mobile firmware (WLAN.HSP.2.0) dereferences a NULL
+ * pointer in its WMI_VDEV_SET_WMM_PARAMS_CMDID handler when the command
+ * arrives for a vdev that has not been started yet, which is what
+ * mac80211's default WMM setup at interface add does. Hold the
+ * parameters back and send them once the vdev is started.
+ */
+static bool ath11k_dbg_defer_wmm;
+module_param_named(dbg_defer_wmm, ath11k_dbg_defer_wmm, bool, 0644);
+MODULE_PARM_DESC(dbg_defer_wmm,
+		 "DEBUG: only send WMM parameters to started vdevs (Default: false)");
+
+static void ath11k_mac_dbg_flush_wmm(struct ath11k *ar, struct ath11k_vif *arvif)
+{
+	int ret;
+
+	lockdep_assert_held(&ar->conf_mutex);
+
+	if (!arvif->dbg_wmm_pending)
+		return;
+
+	arvif->dbg_wmm_pending = false;
+	ath11k_info(ar->ab, "DEBUG: sending deferred WMM parameters for vdev %d\n",
+		    arvif->vdev_id);
+	ret = ath11k_wmi_send_wmm_update_cmd_tlv(ar, arvif->vdev_id,
+						 &arvif->wmm_params,
+						 WMI_WMM_PARAM_TYPE_LEGACY);
+	if (ret)
+		ath11k_warn(ar->ab, "failed to set deferred wmm params: %d\n", ret);
+}
+
 static int ath11k_mac_op_conf_tx(struct ieee80211_hw *hw,
 				 struct ieee80211_vif *vif,
 				 unsigned int link_id, u16 ac,
@@ -5527,6 +5558,14 @@ static int ath11k_mac_op_conf_tx(struct ieee80211_hw *hw,
 	p->cwmax = params->cw_max;
 	p->aifs = params->aifs;
 	p->txop = params->txop;
+
+	if (ath11k_dbg_defer_wmm && !arvif->is_started) {
+		ath11k_info(ar->ab, "DEBUG: holding back WMM parameters (ac %u) for vdev %d until it is started\n",
+			    ac, arvif->vdev_id);
+		arvif->dbg_wmm_pending = true;
+		ret = ath11k_conf_tx_uapsd(ar, vif, ac, params->uapsd);
+		goto exit;
+	}
 
 	ret = ath11k_wmi_send_wmm_update_cmd_tlv(ar, arvif->vdev_id,
 						 &arvif->wmm_params,
@@ -7974,6 +8013,7 @@ static int ath11k_mac_start_vdev_delay(struct ieee80211_hw *hw,
 	}
 
 	arvif->is_started = true;
+	ath11k_mac_dbg_flush_wmm(ar, arvif);
 
 	/* TODO: Setup ps and cts/rts protection */
 	return 0;
@@ -8462,6 +8502,7 @@ ath11k_mac_op_assign_vif_chanctx(struct ieee80211_hw *hw,
 		}
 
 		arvif->is_started = true;
+		ath11k_mac_dbg_flush_wmm(ar, arvif);
 	}
 
 	if (arvif->vdev_type != WMI_VDEV_TYPE_MONITOR &&
