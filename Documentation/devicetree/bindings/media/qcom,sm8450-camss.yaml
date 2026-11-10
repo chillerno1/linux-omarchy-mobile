@@ -14,7 +14,11 @@ description:
 
 properties:
   compatible:
-    const: qcom,sm8450-camss
+    oneOf:
+      - const: qcom,sm8450-camss
+      - items:
+          - const: qcom,sm8475-camss
+          - const: qcom,sm8450-camss
 
   reg:
     maxItems: 17
