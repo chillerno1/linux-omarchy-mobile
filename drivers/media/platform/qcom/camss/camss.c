@@ -33,12 +33,12 @@
 #define CAMSS_CLOCK_MARGIN_DENOMINATOR 100
 
 /*
- * C-PHY encodes data by 16/7 ~ 2.28 bits/symbol
- * D-PHY doesn't encode data, thus 16/16 = 1 b/s
+ * Symbols needed for 16 bits: C-PHY encodes 16 bits in 7 symbols (~2.28
+ * bits/symbol), D-PHY doesn't encode data, thus 16 symbols (1 b/s)
  */
-#define CAMSS_COMMON_PHY_DIVIDENT 16
-#define CAMSS_CPHY_DIVISOR 7
-#define CAMSS_DPHY_DIVISOR 16
+#define CAMSS_PHY_BITS 16
+#define CAMSS_CPHY_SYMBOLS 7
+#define CAMSS_DPHY_SYMBOLS 16
 
 static const struct parent_dev_ops vfe_parent_dev_ops;
 
@@ -4969,14 +4969,15 @@ s64 camss_get_link_freq(struct media_entity *entity, unsigned int bpp,
 			unsigned int lanes, const bool cphy)
 {
 	struct media_pad *sensor_pad;
-	unsigned int div = lanes * 2 * (cphy ? CAMSS_CPHY_DIVISOR :
-					       CAMSS_DPHY_DIVISOR);
+	unsigned int mul = bpp * (cphy ? CAMSS_CPHY_SYMBOLS :
+					 CAMSS_DPHY_SYMBOLS);
 
 	sensor_pad = camss_find_sensor_pad(entity);
 	if (!sensor_pad)
 		return -ENODEV;
 
-	return v4l2_get_link_freq(sensor_pad, CAMSS_COMMON_PHY_DIVIDENT * bpp, div);
+	/* link_freq = pixel_rate * bpp * k / (2 * lanes * 16), k = 7 or 16 */
+	return v4l2_get_link_freq(sensor_pad, mul, 2 * lanes * CAMSS_PHY_BITS);
 }
 
 /*
