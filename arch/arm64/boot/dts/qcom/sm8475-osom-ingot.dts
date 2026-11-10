@@ -435,6 +435,12 @@
 		dvdd-supply = <&vreg_l1j_1p056>;
 
 		orientation = <0>;
+		/*
+		 * Mounted at 90 degrees: the picture needs a quarter turn
+		 * clockwise to be upright in portrait, which is 270 degrees
+		 * counter-clockwise, the direction this property counts in.
+		 */
+		rotation = <270>;
 
 		port {
 			front_cam_ep: endpoint {
