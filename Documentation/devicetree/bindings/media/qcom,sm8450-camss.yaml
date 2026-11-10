@@ -168,8 +168,22 @@ properties:
                   - 4 # MEDIA_BUS_TYPE_CSI2_DPHY
 
             required:
-              - clock-lanes
               - data-lanes
+
+            if:
+              properties:
+                bus-type:
+                  const: 1
+              required:
+                - bus-type
+            then:
+              properties:
+                clock-lanes: false
+                data-lanes:
+                  maxItems: 3
+            else:
+              required:
+                - clock-lanes
 
       port@1:
         $ref: /schemas/graph.yaml#/$defs/port-base
@@ -196,8 +210,22 @@ properties:
                   - 4 # MEDIA_BUS_TYPE_CSI2_DPHY
 
             required:
-              - clock-lanes
               - data-lanes
+
+            if:
+              properties:
+                bus-type:
+                  const: 1
+              required:
+                - bus-type
+            then:
+              properties:
+                clock-lanes: false
+                data-lanes:
+                  maxItems: 3
+            else:
+              required:
+                - clock-lanes
 
       port@2:
         $ref: /schemas/graph.yaml#/$defs/port-base
@@ -224,8 +252,22 @@ properties:
                   - 4 # MEDIA_BUS_TYPE_CSI2_DPHY
 
             required:
-              - clock-lanes
               - data-lanes
+
+            if:
+              properties:
+                bus-type:
+                  const: 1
+              required:
+                - bus-type
+            then:
+              properties:
+                clock-lanes: false
+                data-lanes:
+                  maxItems: 3
+            else:
+              required:
+                - clock-lanes
 
       port@3:
         $ref: /schemas/graph.yaml#/$defs/port-base
@@ -252,8 +294,22 @@ properties:
                   - 4 # MEDIA_BUS_TYPE_CSI2_DPHY
 
             required:
-              - clock-lanes
               - data-lanes
+
+            if:
+              properties:
+                bus-type:
+                  const: 1
+              required:
+                - bus-type
+            then:
+              properties:
+                clock-lanes: false
+                data-lanes:
+                  maxItems: 3
+            else:
+              required:
+                - clock-lanes
 
       port@4:
         $ref: /schemas/graph.yaml#/$defs/port-base
@@ -280,8 +336,22 @@ properties:
                   - 4 # MEDIA_BUS_TYPE_CSI2_DPHY
 
             required:
-              - clock-lanes
               - data-lanes
+
+            if:
+              properties:
+                bus-type:
+                  const: 1
+              required:
+                - bus-type
+            then:
+              properties:
+                clock-lanes: false
+                data-lanes:
+                  maxItems: 3
+            else:
+              required:
+                - clock-lanes
 
       port@5:
         $ref: /schemas/graph.yaml#/$defs/port-base
@@ -308,8 +378,22 @@ properties:
                   - 4 # MEDIA_BUS_TYPE_CSI2_DPHY
 
             required:
-              - clock-lanes
               - data-lanes
+
+            if:
+              properties:
+                bus-type:
+                  const: 1
+              required:
+                - bus-type
+            then:
+              properties:
+                clock-lanes: false
+                data-lanes:
+                  maxItems: 3
+            else:
+              required:
+                - clock-lanes
 
 required:
   - compatible
