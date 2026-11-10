@@ -321,6 +321,17 @@ config VIDEO_IMX481
 	  To compile this driver as a module, choose M here: the
 	  module will be called imx481.
 
+config VIDEO_IMX563
+	tristate "Sony IMX563 sensor support"
+	depends on OF
+	select V4L2_CCI_I2C
+	help
+	  This is a driver for the Sony IMX563 camera sensor. It currently
+	  only powers the sensor up and identifies it.
+
+	  To compile this driver as a module, choose M here: the
+	  module will be called imx563.
+
 config VIDEO_IMX678
 	tristate "Sony IMX678 sensor support"
 	depends on GPIOLIB
