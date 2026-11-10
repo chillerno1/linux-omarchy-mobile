@@ -10,8 +10,8 @@ maintainers:
   - chillerno1 <gh.chiller@pm.me>
 
 description:
-  The Sony IMX563 is a CMOS image sensor with a MIPI CSI-2 output,
-  controlled through an I2C-compatible interface.
+  The Sony IMX563 is a 12 Mpixel CMOS image sensor with a MIPI CSI-2
+  output over C-PHY, controlled through an I2C-compatible interface.
 
 allOf:
   - $ref: /schemas/media/video-interface-devices.yaml#
@@ -24,7 +24,7 @@ properties:
     maxItems: 1
 
   clocks:
-    description: External clock (INCK), 24 MHz.
+    description: External clock (INCK), 19.2 MHz.
     maxItems: 1
 
   dovdd-supply:
@@ -59,15 +59,25 @@ properties:
         unevaluatedProperties: false
 
         properties:
+          bus-type:
+            const: 1 # MEDIA_BUS_TYPE_CSI2_CPHY
+
           data-lanes:
-            minItems: 1
-            maxItems: 4
+            description: The three C-PHY trios, in the sensor's order.
+            items:
+              - const: 1
+              - const: 2
+              - const: 3
 
           link-frequencies: true
 
         required:
+          - bus-type
           - data-lanes
           - link-frequencies
+
+    required:
+      - endpoint
 
 required:
   - compatible
@@ -77,12 +87,14 @@ required:
   - avdd-supply
   - avdd2-supply
   - dvdd-supply
+  - port
 
 unevaluatedProperties: false
 
 examples:
   - |
     #include <dt-bindings/gpio/gpio.h>
+    #include <dt-bindings/media/video-interfaces.h>
 
     i2c {
         #address-cells = <1>;
@@ -94,7 +106,7 @@ examples:
 
             clocks = <&cam_mclk>;
             assigned-clocks = <&cam_mclk>;
-            assigned-clock-rates = <24000000>;
+            assigned-clock-rates = <19200000>;
 
             dovdd-supply = <&vreg_dovdd>;
             avdd-supply = <&vreg_avdd>;
@@ -104,6 +116,15 @@ examples:
             reset-gpios = <&tlmm 117 GPIO_ACTIVE_LOW>;
 
             orientation = <1>;
+
+            port {
+                endpoint {
+                    remote-endpoint = <&csiphy2_ep>;
+                    bus-type = <MEDIA_BUS_TYPE_CSI2_CPHY>;
+                    data-lanes = <1 2 3>;
+                    link-frequencies = /bits/ 64 <1148800000 948000000>;
+                };
+            };
         };
     };
 ...
