@@ -272,6 +272,8 @@ struct qseecom_registered_app_list {
 	bool app_blocked;
 	u32 check_block;
 	u32 blocked_on_listener_id;
+	/* Found loaded (by the bootloader), not loaded through this driver */
+	bool preloaded;
 };
 
 struct qseecom_unload_app_pending_list {
@@ -1823,7 +1825,16 @@ static int qseecom_unload_app(struct qseecom_dev_handle *data, bool app_crash)
 	}
 
 	if (!ptr_app->ref_cnt) {
-		ret = __qseecom_unload_app(data, data->client.app_id);
+		/*
+		 * An app that was already loaded when its first client asked
+		 * for it belongs to the bootloader. The stock driver shuts
+		 * such an app down with its last client; here it stays loaded,
+		 * so a mere query can never take a boot-time app away.
+		 */
+		if (ptr_app->preloaded)
+			ret = 0;
+		else
+			ret = __qseecom_unload_app(data, data->client.app_id);
 		if (ret == -EBUSY) {
 			/*
 			 * If unload failed due to EBUSY, don't free mem
@@ -2752,6 +2763,7 @@ static int qseecom_query_app_loaded(struct qseecom_dev_handle *data,
 		entry->app_blocked = false;
 		entry->blocked_on_listener_id = 0;
 		entry->check_block = 0;
+		entry->preloaded = true;
 		spin_lock_irqsave(&qseecom.registered_app_list_lock, flags);
 		list_add_tail(&entry->list, &qseecom.registered_app_list_head);
 		spin_unlock_irqrestore(&qseecom.registered_app_list_lock, flags);
