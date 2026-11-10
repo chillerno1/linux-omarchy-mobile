@@ -1088,6 +1088,14 @@
 	phy-names = "usb2-phy";
 	maximum-speed = "high-speed";
 	dr_mode = "peripheral";
+
+	/*
+	 * USB 2.0 only: the QMP PHY is left off, so its PIPE clock runs only
+	 * when the bootloader started it (fastboot). Without this the core
+	 * soft reset times out on a normal boot.
+	 */
+	qcom,select-utmi-as-pipe-clk;
+
 	status = "okay";
 };
 
