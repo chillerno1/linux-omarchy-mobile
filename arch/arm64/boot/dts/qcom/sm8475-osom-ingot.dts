@@ -6,9 +6,10 @@
  * peripheral mode. The GPU, the remote processors and the radios stay off
  * until each is brought up on its own.
  *
- * Audio: a WCD938x codec for the analog microphones on the RX and TX
- * SoundWire buses, and two WSA883x speaker amplifiers on the WSA bus. The
- * second WSA bus and its macro are unused.
+ * Audio: a WCD938x codec on the RX and TX SoundWire buses, two WSA883x
+ * speaker amplifiers on the WSA bus, and two digital microphones on the
+ * LPASS DMIC lines, biased by the WCD938x. The second WSA bus and its macro
+ * are unused.
  */
 
 /dts-v1/;
@@ -652,6 +653,23 @@
 	};
 };
 
+&lpass_tlmm {
+	dmic67_default: dmic67-default-state {
+		clk-pins {
+			pins = "gpio17";
+			function = "dmic4_clk";
+			drive-strength = <8>;
+			output-high;
+		};
+
+		data-pins {
+			pins = "gpio18";
+			function = "dmic4_data";
+			drive-strength = <8>;
+		};
+	};
+};
+
 &mdss {
 	status = "okay";
 };
@@ -793,6 +811,10 @@
 			"AMIC3", "MIC BIAS3",
 			"AMIC4", "MIC BIAS3",
 			"AMIC5", "MIC BIAS4",
+			"VA DMIC0", "MIC BIAS1",
+			"VA DMIC1", "MIC BIAS1",
+			"VA DMIC6", "MIC BIAS4",
+			"VA DMIC7", "MIC BIAS4",
 			"TX SWR_INPUT0", "ADC1_OUTPUT",
 			"TX SWR_INPUT1", "ADC2_OUTPUT",
 			"TX SWR_INPUT0", "ADC3_OUTPUT",
@@ -823,6 +845,22 @@
 
 		codec {
 			sound-dai = <&wcd938x 1>, <&swr2 0>, <&txmacro 0>;
+		};
+
+		platform {
+			sound-dai = <&q6apm>;
+		};
+	};
+
+	va-dai-link {
+		link-name = "VA Capture";
+
+		cpu {
+			sound-dai = <&q6apmbedai VA_CODEC_DMA_TX_0>;
+		};
+
+		codec {
+			sound-dai = <&vamacro 0>;
 		};
 
 		platform {
@@ -1149,7 +1187,17 @@
 	status = "okay";
 };
 
-/* The VA macro provides the frame sync clock the other macros run from */
+/*
+ * The VA macro provides the frame sync clock the other macros run from, and
+ * it clocks and decimates the two digital microphones: the pair on DMIC1
+ * (LPI gpio6/7) and the pair on DMIC4 (LPI gpio17/18).
+ */
 &vamacro {
+	pinctrl-0 = <&dmic01_default>, <&dmic67_default>;
+	pinctrl-names = "default";
+
+	vdd-micb-supply = <&vreg_s10b_1p8>;
+	qcom,dmic-sample-rate = <600000>;
+
 	status = "okay";
 };
