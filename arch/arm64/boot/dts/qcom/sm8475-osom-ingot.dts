@@ -15,6 +15,7 @@
 
 #include <dt-bindings/input/input.h>
 #include <dt-bindings/leds/common.h>
+#include <dt-bindings/media/video-interfaces.h>
 #include <dt-bindings/pinctrl/qcom,pmic-gpio.h>
 #include <dt-bindings/regulator/qcom,rpmh-regulator.h>
 #include <dt-bindings/sound/qcom,q6dsp-lpass-ports.h>
@@ -451,6 +452,22 @@
 	status = "okay";
 
 	ports {
+		port@1 {
+			csiphy1_ep: endpoint {
+				bus-type = <MEDIA_BUS_TYPE_CSI2_CPHY>;
+				data-lanes = <0 1 2>;
+				remote-endpoint = <&main_cam_ep>;
+			};
+		};
+
+		port@2 {
+			csiphy2_ep: endpoint {
+				bus-type = <MEDIA_BUS_TYPE_CSI2_CPHY>;
+				data-lanes = <0 1 2>;
+				remote-endpoint = <&uw_cam_ep>;
+			};
+		};
+
 		port@5 {
 			csiphy5_ep: endpoint {
 				clock-lanes = <7>;
@@ -488,6 +505,15 @@
 		dvdd-supply = <&vreg_l1i_1p1>;
 
 		orientation = <1>;
+
+		port {
+			main_cam_ep: endpoint {
+				bus-type = <MEDIA_BUS_TYPE_CSI2_CPHY>;
+				data-lanes = <1 2 3>;
+				link-frequencies = /bits/ 64 <431000000 574000000>;
+				remote-endpoint = <&csiphy1_ep>;
+			};
+		};
 	};
 };
 
@@ -499,7 +525,7 @@
 
 		clocks = <&camcc CAM_CC_MCLK2_CLK>;
 		assigned-clocks = <&camcc CAM_CC_MCLK2_CLK>;
-		assigned-clock-rates = <24000000>;
+		assigned-clock-rates = <19200000>;
 
 		power-domains = <&camcc TITAN_TOP_GDSC>;
 
@@ -514,6 +540,15 @@
 		dvdd-supply = <&vreg_l2i_1p1>;
 
 		orientation = <1>;
+
+		port {
+			uw_cam_ep: endpoint {
+				bus-type = <MEDIA_BUS_TYPE_CSI2_CPHY>;
+				data-lanes = <1 2 3>;
+				link-frequencies = /bits/ 64 <948000000 1148800000>;
+				remote-endpoint = <&csiphy2_ep>;
+			};
+		};
 	};
 };
 
