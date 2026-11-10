@@ -25,7 +25,12 @@
 		reg = <0 0x088e3000 0 0x154>;
 		#phy-cells = <0>;
 
-		clocks = <&rpmhcc RPMH_CXO_CLK>;
+		/*
+		 * The eUSB2 reference clock is gated by the GCC clkref branch.
+		 * The bootloader leaves it on only in fastboot mode, so taking
+		 * the XO directly works there and fails on a normal boot.
+		 */
+		clocks = <&gcc GCC_EUSB3_0_CLKREF_EN>;
 		clock-names = "ref";
 
 		resets = <&gcc GCC_QUSB2PHY_PRIM_BCR>;
