@@ -326,8 +326,8 @@ config VIDEO_IMX563
 	depends on OF
 	select V4L2_CCI_I2C
 	help
-	  This is a driver for the Sony IMX563 camera sensor. It currently
-	  only powers the sensor up and identifies it.
+	  This is a Video4Linux2 sensor driver for the Sony IMX563
+	  camera sensor.
 
 	  To compile this driver as a module, choose M here: the
 	  module will be called imx563.
