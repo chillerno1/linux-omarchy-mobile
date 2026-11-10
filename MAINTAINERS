@@ -4620,6 +4620,13 @@ T:	git git://git.kernel.org/pub/scm/linux/kernel/git/luisbg/linux-befs.git
 F:	Documentation/filesystems/befs.rst
 F:	fs/befs/
 
+BETTERLIFE FINGERPRINT SENSOR DRIVER
+M:	chillerno1 <gh.chiller@pm.me>
+L:	linux-input@vger.kernel.org
+S:	Maintained
+F:	Documentation/devicetree/bindings/input/betterlife,bf83112.yaml
+F:	drivers/input/misc/betterlife-fp.c
+
 BFQ I/O SCHEDULER
 M:	Yu Kuai <yukuai@fygo.io>
 L:	linux-block@vger.kernel.org
