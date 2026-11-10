@@ -29,6 +29,7 @@
 
 #define pr_fmt(fmt) "qseecom: " fmt
 
+#include <linux/debugfs.h>
 #include <linux/delay.h>
 #include <linux/dma-buf.h>
 #include <linux/dma-mapping.h>
@@ -44,6 +45,7 @@
 #include <linux/platform_device.h>
 #include <linux/qseecom.h>
 #include <linux/scatterlist.h>
+#include <linux/seq_file.h>
 #include <linux/sizes.h>
 #include <linux/slab.h>
 #include <linux/spinlock.h>
@@ -93,6 +95,10 @@
 	QSEECOM_SMC_ID(TZ_OWNER_SIP, TZ_SVC_INFO, 0x03)
 #define TZ_OS_APP_START_ID \
 	QSEECOM_SMC_ID(TZ_OWNER_QSEE_OS, TZ_SVC_APP_MGR, 0x01)
+#define TZ_OS_REGISTER_LOG_BUFFER_ID \
+	QSEECOM_SMC_ID(TZ_OWNER_QSEE_OS, TZ_SVC_APP_MGR, 0x06)
+#define TZ_OS_QUERY_ENCR_LOG_FEATURE_ID \
+	QSEECOM_SMC_ID(TZ_OWNER_QSEE_OS, TZ_SVC_APP_MGR, 0x0b)
 #define TZ_OS_APP_SHUTDOWN_ID \
 	QSEECOM_SMC_ID(TZ_OWNER_QSEE_OS, TZ_SVC_APP_MGR, 0x02)
 #define TZ_OS_APP_LOOKUP_ID \
@@ -3244,6 +3250,144 @@ static int qseecom_init_control(void)
 	return ret;
 }
 
+/*
+ * QSEE log
+ *
+ * QSEE and the trusted applications log into a ring buffer that the normal
+ * world registers. It is the only place that says why QSEE refused a
+ * request, so it can be had for debugging with the qsee_log parameter. There
+ * is no call to take the buffer back: it is never freed, also not when the
+ * module is removed, and every load of the module with the parameter set
+ * registers a new one.
+ */
+
+#define FEATURE_ID_DIAG			6
+#define QSEE_DIAG_MAJOR(v)		(((v) >> 22) & 0x3ff)
+#define QSEE_DIAG_MINOR(v)		(((v) >> 12) & 0x3ff)
+#define QSEE_LOG_BUF_SIZE		SZ_32K
+#define QSEE_LOG_BUF_SIZE_V2		SZ_128K
+
+static bool qsee_log;
+module_param(qsee_log, bool, 0444);
+MODULE_PARM_DESC(qsee_log, "Register a QSEE log buffer and show it in debugfs (the buffer is never freed)");
+
+static struct {
+	void *buf;
+	size_t size;
+	bool v2;	/* 32-bit ring position instead of 16-bit */
+	struct dentry *dir;
+} qseecom_log;
+
+static int qsee_log_show(struct seq_file *m, void *unused)
+{
+	size_t hdr = qseecom_log.v2 ? 8 : 4;
+	size_t len = qseecom_log.size - hdr;
+	u32 wrap, offset;
+	u8 *snap;
+
+	snap = kvmemdup(qseecom_log.buf, qseecom_log.size, GFP_KERNEL);
+	if (!snap)
+		return -ENOMEM;
+
+	if (qseecom_log.v2) {
+		wrap = get_unaligned_le32(snap);
+		offset = get_unaligned_le32(snap + 4);
+	} else {
+		wrap = get_unaligned_le16(snap);
+		offset = get_unaligned_le16(snap + 2);
+	}
+
+	/* An implausible position: show everything as it is. */
+	if (offset > len) {
+		seq_write(m, snap, qseecom_log.size);
+	} else {
+		if (wrap)
+			seq_write(m, snap + hdr + offset, len - offset);
+		seq_write(m, snap + hdr, offset);
+	}
+
+	kvfree(snap);
+	return 0;
+}
+DEFINE_SHOW_ATTRIBUTE(qsee_log);
+
+static void qseecom_log_init(struct device *dev)
+{
+	struct qseecom_command_scm_resp resp;
+	bool encrypted = false;
+	u64 handle, args[2];
+	dma_addr_t paddr;
+	u32 diag = 0;
+	size_t size;
+	void *buf;
+	int ret;
+
+	mutex_lock(&app_access_lock);
+	args[0] = FEATURE_ID_DIAG;
+	ret = qseecom_scm_call(TZ_INFO_GET_FEATURE_VERSION_ID,
+			       QSEECOM_ARGS(1, QSEECOM_VAL), args, &resp);
+	if (!ret)
+		diag = resp.result;
+	ret = qseecom_scm_call(TZ_OS_QUERY_ENCR_LOG_FEATURE_ID, QSEECOM_ARGS(0),
+			       args, &resp);
+	if (!ret)
+		encrypted = resp.result;
+	mutex_unlock(&app_access_lock);
+
+	qseecom_log.v2 = QSEE_DIAG_MAJOR(diag) == 9 &&
+			 QSEE_DIAG_MINOR(diag) >= 2 && QSEE_DIAG_MINOR(diag) <= 4;
+	size = qseecom_log.v2 ? QSEE_LOG_BUF_SIZE_V2 : QSEE_LOG_BUF_SIZE;
+
+	/*
+	 * Coherent memory, so that what QSEE writes is seen without cache
+	 * maintenance. The device sits behind no IOMMU: the DMA address is
+	 * the physical one.
+	 */
+	buf = dma_alloc_coherent(dev, size, &paddr, GFP_KERNEL);
+	if (!buf)
+		return;
+
+	ret = qcom_tzmem_shm_bridge_create(paddr, size, &handle);
+	if (ret) {
+		dev_err(dev, "QSEE log: no SHM bridge: %d\n", ret);
+		dma_free_coherent(dev, size, buf, paddr);
+		return;
+	}
+
+	mutex_lock(&app_access_lock);
+	args[0] = paddr;
+	args[1] = size;
+	ret = qseecom_scm_call(TZ_OS_REGISTER_LOG_BUFFER_ID,
+			       QSEECOM_ARGS(2, QSEECOM_RW, QSEECOM_VAL), args,
+			       &resp);
+	mutex_unlock(&app_access_lock);
+	if (ret || resp.result) {
+		dev_err(dev, "QSEE log: registration failed: %d, result %d\n",
+			ret, (int)resp.result);
+		/*
+		 * Whether QSEE kept the address is unknown, so the buffer and
+		 * its bridge stay.
+		 */
+		return;
+	}
+
+	qseecom_log.buf = buf;
+	qseecom_log.size = size;
+	qseecom_log.dir = debugfs_create_dir("qseecom", NULL);
+	debugfs_create_file("qsee_log", 0400, qseecom_log.dir, NULL,
+			    &qsee_log_fops);
+
+	dev_info(dev, "QSEE log: %zu bytes registered, diag version 0x%x%s\n",
+		 size, diag,
+		 encrypted ? ", QSEE encrypts its log: it may stay empty" : "");
+}
+
+static void qseecom_log_exit(void)
+{
+	/* The buffer stays: QSEE may still write to it. */
+	debugfs_remove_recursive(qseecom_log.dir);
+}
+
 static void qseecom_release_all(void)
 {
 	struct qseecom_registered_listener_list *svc, *svc_tmp;
@@ -3328,11 +3472,15 @@ static int qseecom_probe(struct platform_device *pdev)
 	dev_info(dev, "QSEE version 0x%x, whitelist %ssupported\n",
 		 qseecom.qsee_version, qseecom.whitelist_support ? "" : "not ");
 
+	if (qsee_log)
+		qseecom_log_init(dev);
+
 	return 0;
 }
 
 static void qseecom_remove(struct platform_device *pdev)
 {
+	qseecom_log_exit();
 	misc_deregister(&qseecom.misc);
 
 	/* All files are closed: run what their release deferred. */
