@@ -90,7 +90,16 @@
  *      1984x1488: 19.2 MHz / 3 * 359 / 1 = 2297.6 Msym/s
  *    The CSI-2 link frequency of a C-PHY link is half the symbol rate.
  */
-#define IMX563_PIXEL_RATE		4121600000LL
+/*
+ * The mode tables' line length (0x0342) counts the sensor's video timing
+ * clock of 4121.6 MHz, which handles two pixels per cycle here. V4L2 wants
+ * a pixel rate and a line length in pixels, and CAMSS sizes the VFE clock
+ * from the pixel rate (4121.6 MHz asks for more than its 727 MHz). Report
+ * both halved: the line time, and so exposure and frame rate, stay the same,
+ * and HBLANK stays non-negative in both modes. The register keeps mode->hts.
+ */
+#define IMX563_HTS_PER_PIXEL		2
+#define IMX563_PIXEL_RATE		(4121600000LL / IMX563_HTS_PER_PIXEL)
 #define IMX563_LINK_FREQ_1148M8		1148800000LL
 #define IMX563_LINK_FREQ_948M		948000000LL
 
@@ -759,7 +768,7 @@ static const struct v4l2_ctrl_ops imx563_ctrl_ops = {
 static int imx563_update_mode_ctrls(struct imx563 *imx563)
 {
 	const struct imx563_mode *mode = imx563->mode;
-	u32 hblank = mode->hts - mode->width;
+	u32 hblank = mode->hts / IMX563_HTS_PER_PIXEL - mode->width;
 	u32 vblank = mode->vts_min - mode->height;
 	int ret;
 
@@ -794,7 +803,7 @@ static int imx563_init_controls(struct imx563 *imx563)
 	struct v4l2_ctrl_handler *hdl = &imx563->ctrls;
 	const struct imx563_mode *mode = imx563->mode;
 	struct v4l2_fwnode_device_properties props;
-	u32 hblank = mode->hts - mode->width;
+	u32 hblank = mode->hts / IMX563_HTS_PER_PIXEL - mode->width;
 	u32 vblank = mode->vts_min - mode->height;
 	u32 exposure_max = mode->vts_min - IMX563_EXPOSURE_MARGIN;
 	unsigned int i;
