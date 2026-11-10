@@ -148,6 +148,20 @@ config INPUT_BBNSM_PWRKEY
 	  To compile this driver as a module, choose M here; the
 	  module will be called bbnsm_pwrkey.
 
+config INPUT_BETTERLIFE_FP
+	tristate "Betterlife fingerprint sensor support"
+	depends on OF || COMPILE_TEST
+	depends on NET
+	help
+	  Say Y here to support the Betterlife (Blestech) BF83112
+	  fingerprint sensor when its SPI bus is owned by the secure world.
+	  The driver powers the sensor, drives its reset line and forwards
+	  its interrupt to the vendor fingerprint library through /dev/blfp
+	  and a netlink socket.
+
+	  To compile this driver as a module, choose M here: the
+	  module will be called betterlife-fp.
+
 config INPUT_BMA150
 	tristate "BMA150/SMB380 acceleration sensor support"
 	depends on I2C
