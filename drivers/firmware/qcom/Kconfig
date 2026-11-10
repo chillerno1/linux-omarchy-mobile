@@ -78,6 +78,24 @@ config QCOM_QSEECOM
 
 	  Select Y here to enable the QSEECOM interface driver.
 
+config QCOM_QSEECOM_USER
+	tristate "Qualcomm QSEECOM userspace interface"
+	depends on QCOM_QSEECOM
+	depends on QCOM_TZMEM
+	depends on DMA_SHARED_BUFFER
+	help
+	  Provides the /dev/qseecom character device used by the vendor
+	  QSEECOM client library and listener daemon to load trusted
+	  applications into the Qualcomm Secure Execution Environment, send
+	  them commands and serve their requests to userspace listener
+	  services.
+
+	  Only enabled on machines known to be compatible. Key management,
+	  crypto engine, RPMB provisioning and erase, and GlobalPlatform
+	  session commands are not supported.
+
+	  Say M here if userspace on your device needs this interface.
+
 config QCOM_QSEECOM_UEFISECAPP
 	bool "Qualcomm SEE UEFI Secure App client driver"
 	depends on QCOM_QSEECOM
