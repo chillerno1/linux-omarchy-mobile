@@ -945,6 +945,12 @@ static int imx563_power_off(struct device *dev)
  * Subdev
  */
 
+/* DEBUG: bring-up knob, not for merging */
+static bool epd;
+module_param(epd, bool, 0644);
+MODULE_PARM_DESC(epd,
+		 "DEBUG: send the Efficient Packet Delimiter, as the reference settings do");
+
 static int imx563_enable_streams(struct v4l2_subdev *sd,
 				 struct v4l2_subdev_state *state, u32 pad,
 				 u64 streams_mask)
@@ -973,6 +979,11 @@ static int imx563_enable_streams(struct v4l2_subdev *sd,
 	if (!ret)
 		ret = cci_write(imx563->regmap, IMX563_REG_LINE_LENGTH,
 				mode->hts, NULL);
+	if (!ret && epd) {
+		/* The values of the reference mode tables */
+		cci_write(imx563->regmap, CCI_REG16(0x0860), 0x8028, &ret);
+		cci_write(imx563->regmap, CCI_REG16(0x0862), 0x0028, &ret);
+	}
 	if (ret) {
 		dev_err(imx563->dev, "failed to write mode registers: %d\n",
 			ret);
