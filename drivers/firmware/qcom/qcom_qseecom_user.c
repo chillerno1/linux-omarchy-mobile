@@ -1533,11 +1533,13 @@ static int __qseecom_check_app_exists(const char *app_name, u32 *app_id)
  * QSEE does not start an app from a buffer that is shared with it only as
  * far as the image reaches: it refuses with its status -47, and accepts the
  * very same image at the same address once the SHM bridge around it is
- * larger. What it needs beyond the image is not documented. On the stock
- * platform images come from a 16 MiB region, aligned to 4 MiB, that is one
- * SHM bridge as a whole, so that is what an image is handed over in here,
- * whatever buffer the caller brought: the image is copied into such a region
- * for the time of the load.
+ * larger. What it needs beyond the image is not documented; measured on the
+ * Saga with a 1.1 MiB image, a bridge of the image's own pages is refused
+ * and one of 2 MiB or more is accepted. On the stock platform images come
+ * from a 16 MiB region, aligned to 4 MiB, that is one SHM bridge as a whole,
+ * so that is what an image is handed over in here, whatever buffer the
+ * caller brought: the image is copied into such a region for the time of
+ * the load.
  */
 #define QSEECOM_IMAGE_REGION_SIZE	SZ_16M
 #define QSEECOM_IMAGE_REGION_ALIGN	SZ_4M
