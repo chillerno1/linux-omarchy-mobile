@@ -117,6 +117,7 @@ struct bf_fp {
 	struct input_dev *input;
 	struct bf_ic_info ic_info;
 	bool ic_info_valid;
+	struct file *wake_holder;	/* file that took the wake lock */
 };
 
 static void bf_fp_reset_pulse(struct bf_fp *fp)
@@ -322,8 +323,8 @@ static int bf_fp_put_u32(unsigned long arg, u32 val)
 	return put_user(val, (u32 __user *)arg);
 }
 
-static long bf_fp_ioctl_locked(struct bf_fp *fp, unsigned int cmd,
-			       unsigned long arg)
+static long bf_fp_ioctl_locked(struct bf_fp *fp, struct file *file,
+			       unsigned int cmd, unsigned long arg)
 {
 	struct bf_ic_info info;
 
@@ -409,9 +410,11 @@ static long bf_fp_ioctl_locked(struct bf_fp *fp, unsigned int cmd,
 
 	case BF_IOC_WAKE_LOCK:
 		pm_stay_awake(fp->dev);
+		fp->wake_holder = file;
 		return 0;
 	case BF_IOC_WAKE_UNLOCK:
 		pm_relax(fp->dev);
+		fp->wake_holder = NULL;
 		return 0;
 
 	/*
@@ -440,14 +443,30 @@ static long bf_fp_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 	dev_dbg(fp->dev, "ioctl %u\n", _IOC_NR(cmd));
 
 	mutex_lock(&fp->lock);
-	ret = bf_fp_ioctl_locked(fp, cmd, arg);
+	ret = bf_fp_ioctl_locked(fp, file, cmd, arg);
 	mutex_unlock(&fp->lock);
 
 	return ret;
 }
 
+/* A library that exits or crashes must not keep the system awake. */
+static int bf_fp_release(struct inode *inode, struct file *file)
+{
+	struct bf_fp *fp = container_of(file->private_data, struct bf_fp, misc);
+
+	mutex_lock(&fp->lock);
+	if (fp->wake_holder == file) {
+		fp->wake_holder = NULL;
+		pm_relax(fp->dev);
+	}
+	mutex_unlock(&fp->lock);
+
+	return 0;
+}
+
 static const struct file_operations bf_fp_fops = {
 	.owner = THIS_MODULE,
+	.release = bf_fp_release,
 	.unlocked_ioctl = bf_fp_ioctl,
 	.compat_ioctl = compat_ptr_ioctl,
 };
