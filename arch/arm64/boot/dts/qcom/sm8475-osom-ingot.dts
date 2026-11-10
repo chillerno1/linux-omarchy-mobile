@@ -465,6 +465,58 @@
 	status = "okay";
 };
 
+&cci0_i2c0 {
+	/* Main camera */
+	camera@29 {
+		compatible = "sony,imx766";
+		reg = <0x29>;
+
+		clocks = <&camcc CAM_CC_MCLK1_CLK>;
+		assigned-clocks = <&camcc CAM_CC_MCLK1_CLK>;
+		assigned-clock-rates = <24000000>;
+
+		power-domains = <&camcc TITAN_TOP_GDSC>;
+
+		reset-gpios = <&tlmm 24 GPIO_ACTIVE_LOW>;
+
+		pinctrl-0 = <&cam_mclk1_default>, <&cam_main_reset_default>;
+		pinctrl-names = "default";
+
+		dovdd-supply = <&vreg_l3j_1p8>;
+		avdd-supply = <&vreg_l3i_2p8>;
+		avdd2-supply = <&vreg_l6i_1p8>;
+		dvdd-supply = <&vreg_l1i_1p1>;
+
+		orientation = <1>;
+	};
+};
+
+&cci0_i2c1 {
+	/* Ultrawide camera */
+	camera@10 {
+		compatible = "sony,imx563";
+		reg = <0x10>;
+
+		clocks = <&camcc CAM_CC_MCLK2_CLK>;
+		assigned-clocks = <&camcc CAM_CC_MCLK2_CLK>;
+		assigned-clock-rates = <24000000>;
+
+		power-domains = <&camcc TITAN_TOP_GDSC>;
+
+		reset-gpios = <&tlmm 117 GPIO_ACTIVE_LOW>;
+
+		pinctrl-0 = <&cam_mclk2_default>, <&cam_uw_reset_default>;
+		pinctrl-names = "default";
+
+		dovdd-supply = <&vreg_l3j_1p8>;
+		avdd-supply = <&vreg_l4i_2p8>;
+		avdd2-supply = <&vreg_l6j_1p8>;
+		dvdd-supply = <&vreg_l2i_1p1>;
+
+		orientation = <1>;
+	};
+};
+
 &cci1 {
 	status = "okay";
 };
