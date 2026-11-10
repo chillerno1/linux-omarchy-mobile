@@ -388,27 +388,34 @@ static void qseecom_shm_reclaim(void)
 /*
  * The TrustZone is given physical addresses, so the buffer must be one
  * physically contiguous range, mapped without translation or bouncing.
+ * Use only the DMA side of the table: dma-buf exporters may hand importers
+ * tables whose page side is unset or deliberately mangled. The device sits
+ * behind no IOMMU, so its DMA addresses are the physical ones; refuse if
+ * that ever changes.
  */
 static int qseecom_shm_check_contiguous(struct qseecom_shm *shm)
 {
 	struct sg_table *sgt = shm->sgt;
 	struct scatterlist *sg;
-	phys_addr_t next;
+	dma_addr_t next;
 	size_t len = 0;
 	int i;
 
-	if (!sgt->orig_nents || sgt->nents != sgt->orig_nents)
+	if (device_iommu_mapped(qseecom.dev) || !sgt->nents)
 		return -EINVAL;
 
-	next = sg_phys(sgt->sgl);
-	for_each_sgtable_sg(sgt, sg, i) {
-		if (sg_phys(sg) != next || sg_dma_address(sg) != sg_phys(sg))
+	next = sg_dma_address(sgt->sgl);
+	for_each_sgtable_dma_sg(sgt, sg, i) {
+		if (sg_dma_address(sg) != next) {
+			pr_debug("contiguity: dma entry %d of %u at %pad, expected %pad\n",
+				 i, sgt->nents, &sg_dma_address(sg), &next);
 			return -EINVAL;
-		next += sg->length;
-		len += sg->length;
+		}
+		next += sg_dma_len(sg);
+		len += sg_dma_len(sg);
 	}
 
-	shm->paddr = sg_phys(sgt->sgl);
+	shm->paddr = sg_dma_address(sgt->sgl);
 	shm->size = min(len, shm->dmabuf->size);
 
 	if (!PAGE_ALIGNED(shm->paddr) || !shm->size)
