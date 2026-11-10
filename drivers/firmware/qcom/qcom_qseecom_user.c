@@ -1527,12 +1527,140 @@ static int __qseecom_check_app_exists(const char *app_name, u32 *app_id)
 	}
 }
 
+/*
+ * App images
+ *
+ * QSEE does not start an app from a buffer that is shared with it only as
+ * far as the image reaches: it refuses with its status -47, and accepts the
+ * very same image at the same address once the SHM bridge around it is
+ * larger. What it needs beyond the image is not documented. On the stock
+ * platform images come from a 16 MiB region, aligned to 4 MiB, that is one
+ * SHM bridge as a whole, so that is what an image is handed over in here,
+ * whatever buffer the caller brought: the image is copied into such a region
+ * for the time of the load.
+ */
+#define QSEECOM_IMAGE_REGION_SIZE	SZ_16M
+#define QSEECOM_IMAGE_REGION_ALIGN	SZ_4M
+
+static unsigned long image_region_size = QSEECOM_IMAGE_REGION_SIZE;
+module_param(image_region_size, ulong, 0644);
+MODULE_PARM_DESC(image_region_size, "Size of the SHM bridge an app image is handed to QSEE in (default 16 MiB, more for large images; below 4 MiB, for testing, used as it is)");
+
+struct qseecom_image {
+	void *alloc;
+	dma_addr_t alloc_addr;
+	size_t alloc_size;
+	void *vaddr;
+	phys_addr_t paddr;
+	size_t size;
+	u64 bridge;
+	bool bridged;
+};
+
+static void qseecom_image_free(struct qseecom_image *img)
+{
+	if (!img->alloc)
+		return;
+	if (img->bridged)
+		qcom_tzmem_shm_bridge_delete(img->bridge);
+	dma_free_coherent(qseecom.dev, img->alloc_size, img->alloc,
+			  img->alloc_addr);
+	img->alloc = NULL;
+}
+
+/* Copy the image out of the caller's dma-buf into a region QSEE accepts. */
+static int qseecom_image_get(struct qseecom_image *img, int fd, u32 mdt_len,
+			     u32 img_len)
+{
+	size_t region = READ_ONCE(image_region_size);
+	struct dma_buf *dmabuf;
+	struct iosys_map map;
+	size_t size;
+	int ret;
+
+	memset(img, 0, sizeof(*img));
+
+	/* The device's DMA addresses must be the physical ones. */
+	if (device_iommu_mapped(qseecom.dev))
+		return -EINVAL;
+
+	dmabuf = dma_buf_get(fd);
+	if (IS_ERR(dmabuf)) {
+		pr_err("dma_buf_get() for fd %d failed\n", fd);
+		return PTR_ERR(dmabuf);
+	}
+
+	if (!img_len || mdt_len > img_len || img_len > dmabuf->size) {
+		pr_err("buffer len %zu does not hold mdt_len %u and img_len %u\n",
+		       dmabuf->size, mdt_len, img_len);
+		ret = -EINVAL;
+		goto out_put;
+	}
+
+	size = max(PAGE_ALIGN(region), PAGE_ALIGN((size_t)img_len));
+	if (region >= QSEECOM_IMAGE_REGION_ALIGN)
+		size = max(size, ALIGN((size_t)img_len,
+				       QSEECOM_IMAGE_REGION_ALIGN) +
+				 QSEECOM_IMAGE_REGION_ALIGN);
+
+	/* Coherent memory: no cache maintenance around the calls. */
+	img->alloc_size = size + QSEECOM_IMAGE_REGION_ALIGN;
+	img->alloc = dma_alloc_coherent(qseecom.dev, img->alloc_size,
+					&img->alloc_addr, GFP_KERNEL);
+	if (!img->alloc) {
+		pr_err("no memory for a %zu byte image region\n", size);
+		ret = -ENOMEM;
+		goto out_put;
+	}
+	img->paddr = ALIGN(img->alloc_addr, QSEECOM_IMAGE_REGION_ALIGN);
+	img->vaddr = img->alloc + (img->paddr - img->alloc_addr);
+	img->size = size;
+
+	ret = qcom_tzmem_shm_bridge_create(img->paddr, img->size, &img->bridge);
+	if (ret == QSEECOM_SHMBRIDGE_E_OVERLAP) {
+		pr_debug("image region is already bridged\n");
+	} else if (ret) {
+		pr_err("failed to create SHM bridge for the image region: %d\n",
+		       ret);
+		ret = ret < 0 ? ret : -EINVAL;
+		goto out_free;
+	} else {
+		img->bridged = true;
+	}
+
+	ret = dma_buf_begin_cpu_access(dmabuf, DMA_FROM_DEVICE);
+	if (ret)
+		goto out_free;
+	ret = dma_buf_vmap_unlocked(dmabuf, &map);
+	if (!ret) {
+		iosys_map_memcpy_from(img->vaddr, &map, 0, img_len);
+		dma_buf_vunmap_unlocked(dmabuf, &map);
+	}
+	dma_buf_end_cpu_access(dmabuf, DMA_FROM_DEVICE);
+	if (ret) {
+		pr_err("could not map the image buffer of fd %d: %d\n", fd, ret);
+		goto out_free;
+	}
+
+	pr_debug("image of fd %d: %u bytes in a %zu byte region at %pa\n", fd,
+		 img_len, img->size, &img->paddr);
+
+	dma_buf_put(dmabuf);
+	return 0;
+
+out_free:
+	qseecom_image_free(img);
+out_put:
+	dma_buf_put(dmabuf);
+	return ret;
+}
+
 static int qseecom_load_app(struct qseecom_dev_handle *data, void __user *argp)
 {
 	struct qseecom_registered_app_list *entry = NULL;
 	struct qseecom_command_scm_resp resp;
 	struct qseecom_load_img_req load_img_req;
-	struct qseecom_shm *shm = NULL;
+	struct qseecom_image img = {};
 	bool first_time = false;
 	unsigned long flags;
 	u32 app_id = 0;
@@ -1578,30 +1706,15 @@ static int qseecom_load_app(struct qseecom_dev_handle *data, void __user *argp)
 		pr_warn("App (%s) doesn't exist, loading apps for first time\n",
 			load_img_req.img_name);
 
-		shm = qseecom_shm_get(load_img_req.ifd_data_fd);
-		if (IS_ERR(shm)) {
-			pr_err("could not map the image buffer\n");
-			return PTR_ERR(shm);
-		}
-
-		if (load_img_req.mdt_len > shm->size ||
-		    load_img_req.img_len > shm->size) {
-			pr_err("buffer len %zu is smaller than mdt_len %u or img_len %u\n",
-			       shm->size, load_img_req.mdt_len,
-			       load_img_req.img_len);
-			ret = -EINVAL;
-			goto loadapp_err;
-		}
+		ret = qseecom_image_get(&img, load_img_req.ifd_data_fd,
+					load_img_req.mdt_len,
+					load_img_req.img_len);
+		if (ret)
+			return ret;
 
 		args[0] = load_img_req.mdt_len;
 		args[1] = load_img_req.img_len;
-		args[2] = shm->paddr;
-
-		ret = qseecom_shm_clean(shm);
-		if (ret) {
-			pr_err("cache operation failed %d\n", ret);
-			goto loadapp_err;
-		}
+		args[2] = img.paddr;
 
 		/* SCM_CALL to load the app and get the app_id back */
 		qseecom_wait_no_app_blocked(TZ_OS_APP_START_ID);
@@ -1614,16 +1727,11 @@ static int qseecom_load_app(struct qseecom_dev_handle *data, void __user *argp)
 			 * The call itself was refused: the first result word
 			 * is then QSEE's own (negative) reason.
 			 */
-			pr_err("scm_call to load app %s failed: %d, QSEE status %d (mdt %u, image %u bytes at %pa)\n",
+			pr_err("scm_call to load app %s failed: %d, QSEE status %d (mdt %u, image %u bytes, region %zu bytes at %pa)\n",
 			       load_img_req.img_name, ret, (int)resp.result,
 			       load_img_req.mdt_len, load_img_req.img_len,
-			       &shm->paddr);
+			       img.size, &img.paddr);
 			ret = -EINVAL;
-			goto loadapp_err;
-		}
-		ret = qseecom_shm_invalidate(shm);
-		if (ret) {
-			pr_err("cache operation failed %d\n", ret);
 			goto loadapp_err;
 		}
 
@@ -1724,7 +1832,7 @@ static int qseecom_load_app(struct qseecom_dev_handle *data, void __user *argp)
 	}
 
 loadapp_err:
-	qseecom_shm_put(shm);
+	qseecom_image_free(&img);
 	return ret;
 }
 
