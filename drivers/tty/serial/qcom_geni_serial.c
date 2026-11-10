@@ -2101,7 +2101,17 @@ static int qcom_geni_serial_suspend(struct device *dev)
 		geni_icc_set_bw(&port->se);
 	}
 
+	/*
+	 * uart_suspend_port() marks the port as suspended before it stops the
+	 * receiver, and the interrupt handler leaves a suspended port alone.
+	 * Stopping the receiver raises the secondary engine's command cancel
+	 * interrupt, which nothing would acknowledge until the port's shutdown
+	 * masks the line. Keep the line masked for the whole call instead; the
+	 * handler acknowledges the interrupt when the port starts up again.
+	 */
+	disable_irq(uport->irq);
 	ret = uart_suspend_port(private_data->drv, uport);
+	enable_irq(uport->irq);
 	if (ret)
 		return ret;
 
