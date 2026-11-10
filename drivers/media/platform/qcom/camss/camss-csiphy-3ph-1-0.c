@@ -57,6 +57,8 @@
 #define CSIPHY_LN5_CSI_3PH_CTRLn_ADDR(n) \
 	(0x0500 + ((n) * 0x4))
 
+#define CSIPHY_3PH_MAX_TRIOS		3
+
 #define CSIPHY_DEFAULT_PARAMS		0
 #define CSIPHY_LANE_ENABLE		1
 #define CSIPHY_SETTLE_CNT_LOWER_BYTE	2
@@ -1233,15 +1235,20 @@ static bool csiphy_is_gen2(u32 version)
 	return ret;
 }
 
-static void csiphy_lanes_enable(struct csiphy_device *csiphy,
-				struct csiphy_config *cfg,
-				s64 link_freq, u8 lane_mask)
+static int csiphy_lanes_enable(struct csiphy_device *csiphy,
+			       struct csiphy_config *cfg,
+			       s64 link_freq, u8 lane_mask)
 {
 	struct csiphy_lanes_cfg *c = &cfg->csi2->lane_cfg;
 	struct csiphy_device_regs *regs = csiphy->regs;
+	struct device *dev = csiphy->camss->dev;
+	bool gen2 = csiphy_is_gen2(csiphy->camss->res->version);
 	u8 settle_cnt;
 	u8 val;
 	int i;
+
+	regs->lane_regs = NULL;
+	regs->lane_array_size = 0;
 
 	switch (csiphy->camss->res->version) {
 	case CAMSS_845:
@@ -1334,8 +1341,32 @@ static void csiphy_lanes_enable(struct csiphy_device *csiphy,
 		break;
 	}
 
-	if (!regs->lane_regs)
-		WARN_ONCE(1, "Missing lane_regs definition!\n");
+	/*
+	 * Gen1 PHYs are only programmed for D-PHY, gen2 PHYs need a lane
+	 * table for the PHY type in use.
+	 */
+	if ((gen2 && !regs->lane_regs) ||
+	    (!gen2 && c->phy_cfg != V4L2_MBUS_CSI2_DPHY)) {
+		dev_err(dev, "CSIPHY%u: %s is not supported on this SoC\n",
+			csiphy->id,
+			c->phy_cfg == V4L2_MBUS_CSI2_CPHY ? "C-PHY" : "D-PHY");
+		return -EOPNOTSUPP;
+	}
+
+	if (c->phy_cfg == V4L2_MBUS_CSI2_CPHY) {
+		if (c->num_data > CSIPHY_3PH_MAX_TRIOS) {
+			dev_err(dev, "CSIPHY%u: %d trios, at most %d supported\n",
+				csiphy->id, c->num_data, CSIPHY_3PH_MAX_TRIOS);
+			return -EINVAL;
+		}
+		for (i = 0; i < c->num_data; i++) {
+			if (c->data[i].pos >= CSIPHY_3PH_MAX_TRIOS) {
+				dev_err(dev, "CSIPHY%u: invalid trio %u\n",
+					csiphy->id, c->data[i].pos);
+				return -EINVAL;
+			}
+		}
+	}
 
 	settle_cnt = csiphy_settle_cnt_calc(link_freq, csiphy->timer_clk_rate);
 
@@ -1355,7 +1386,7 @@ static void csiphy_lanes_enable(struct csiphy_device *csiphy,
 	writel_relaxed(val, csiphy->base +
 		       CSIPHY_3PH_CMN_CSI_COMMON_CTRLn(regs->offset, 0));
 
-	if (csiphy_is_gen2(csiphy->camss->res->version))
+	if (gen2)
 		csiphy_gen2_config_lanes(csiphy, settle_cnt);
 	else
 		csiphy_gen1_config_lanes(csiphy, cfg, settle_cnt);
@@ -1365,6 +1396,8 @@ static void csiphy_lanes_enable(struct csiphy_device *csiphy,
 		writel_relaxed(0, csiphy->base +
 			       CSIPHY_3PH_CMN_CSI_COMMON_CTRLn(regs->offset, i));
 	}
+
+	return 0;
 }
 
 static void csiphy_lanes_disable(struct csiphy_device *csiphy,
