@@ -316,7 +316,8 @@ config VIDEO_IMX481
 	select V4L2_CCI_I2C
 	help
 	  This is a driver for the Sony IMX481 camera sensor. It currently
-	  only powers the sensor up and identifies it.
+	  powers the sensor up, identifies it and registers a V4L2 subdev
+	  with a fixed format; it cannot stream yet.
 
 	  To compile this driver as a module, choose M here: the
 	  module will be called imx481.
