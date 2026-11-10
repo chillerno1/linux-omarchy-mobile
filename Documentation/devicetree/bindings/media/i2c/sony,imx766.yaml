@@ -10,8 +10,9 @@ maintainers:
   - chillerno1 <gh.chiller@pm.me>
 
 description:
-  The Sony IMX766 is a CMOS image sensor with a MIPI CSI-2 output,
-  controlled through an I2C-compatible interface.
+  The Sony IMX766 is a 50 Mpixel (8192x6144) Quad Bayer CMOS image sensor
+  with a MIPI CSI-2 output over three C-PHY trios, controlled through an
+  I2C-compatible interface.
 
 allOf:
   - $ref: /schemas/media/video-interface-devices.yaml#
@@ -59,13 +60,24 @@ properties:
         unevaluatedProperties: false
 
         properties:
-          data-lanes:
-            minItems: 1
-            maxItems: 4
+          bus-type:
+            const: 1 # MEDIA_BUS_TYPE_CSI2_CPHY
 
-          link-frequencies: true
+          data-lanes:
+            description: The three C-PHY trios.
+            items:
+              - const: 1
+              - const: 2
+              - const: 3
+
+          link-frequencies:
+            description:
+              Half the C-PHY symbol rate per trio. Each sensor mode needs
+              its own frequency; modes whose frequency is not listed are
+              not available.
 
         required:
+          - bus-type
           - data-lanes
           - link-frequencies
 
@@ -77,12 +89,14 @@ required:
   - avdd-supply
   - avdd2-supply
   - dvdd-supply
+  - port
 
 unevaluatedProperties: false
 
 examples:
   - |
     #include <dt-bindings/gpio/gpio.h>
+    #include <dt-bindings/media/video-interfaces.h>
 
     i2c {
         #address-cells = <1>;
@@ -104,6 +118,15 @@ examples:
             reset-gpios = <&tlmm 24 GPIO_ACTIVE_LOW>;
 
             orientation = <1>;
+
+            port {
+                endpoint {
+                    remote-endpoint = <&csiphy1_ep>;
+                    bus-type = <MEDIA_BUS_TYPE_CSI2_CPHY>;
+                    data-lanes = <1 2 3>;
+                    link-frequencies = /bits/ 64 <431000000 574000000>;
+                };
+            };
         };
     };
 ...
