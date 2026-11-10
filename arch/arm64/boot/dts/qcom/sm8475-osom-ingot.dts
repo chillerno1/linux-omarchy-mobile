@@ -505,6 +505,7 @@
 		dvdd-supply = <&vreg_l1i_1p1>;
 
 		orientation = <1>;
+		rotation = <90>;
 
 		port {
 			main_cam_ep: endpoint {
@@ -540,6 +541,7 @@
 		dvdd-supply = <&vreg_l2i_1p1>;
 
 		orientation = <1>;
+		rotation = <270>;
 
 		port {
 			uw_cam_ep: endpoint {
