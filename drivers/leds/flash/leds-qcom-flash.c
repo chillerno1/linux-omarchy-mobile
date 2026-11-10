@@ -342,14 +342,24 @@ static int set_flash_current(struct qcom_flash_led *led, u32 current_ma, enum le
 	struct qcom_flash_data *flash_data = led->flash_data;
 	u32 itarg_ua, ires_ua;
 	u8 shift, ires_mask = 0, ires_val = 0, chan_id;
+	bool ires_5ma = (mode == TORCH_MODE);
 	int i, rc;
+
+	/*
+	 * The revision 0x01 4-channel module (PM8350C) does not light the LED
+	 * in torch mode with the 5 mA current resolution selected, so keep it
+	 * on 12.5 mA steps like flash mode, as the vendor configuration does.
+	 */
+	if (flash_data->hw_type == QCOM_MVFLASH_4CH &&
+	    flash_data->revision == FLASH_4CH_REVISION_V0P1)
+		ires_5ma = false;
 
 	/*
 	 * Split the current across the channels and set the
 	 * IRESOLUTION and ITARGET registers accordingly.
 	 */
 	itarg_ua = (current_ma * UA_PER_MA) / led->chan_count + 1;
-	ires_ua = (mode == FLASH_MODE) ? FLASH_IRES_UA : TORCH_IRES_UA;
+	ires_ua = ires_5ma ? TORCH_IRES_UA : FLASH_IRES_UA;
 
 	for (i = 0; i < led->chan_count; i++) {
 		u8 itarget = 0;
@@ -366,15 +376,15 @@ static int set_flash_current(struct qcom_flash_led *led, u32 current_ma, enum le
 		if (flash_data->hw_type == QCOM_MVFLASH_3CH) {
 			shift = chan_id * 2;
 			ires_mask |= FLASH_IRES_MASK_3CH << shift;
-			ires_val |= ((mode == FLASH_MODE) ?
-				(FLASH_IRES_12P5MA_VAL << shift) :
-				(FLASH_IRES_5MA_VAL_3CH << shift));
+			ires_val |= (ires_5ma ?
+				(FLASH_IRES_5MA_VAL_3CH << shift) :
+				(FLASH_IRES_12P5MA_VAL << shift));
 		} else if (flash_data->hw_type == QCOM_MVFLASH_4CH) {
 			shift = chan_id;
 			ires_mask |= FLASH_IRES_MASK_4CH << shift;
-			ires_val |= ((mode == FLASH_MODE) ?
-				(FLASH_IRES_12P5MA_VAL << shift) :
-				(FLASH_IRES_5MA_VAL_4CH << shift));
+			ires_val |= (ires_5ma ?
+				(FLASH_IRES_5MA_VAL_4CH << shift) :
+				(FLASH_IRES_12P5MA_VAL << shift));
 		} else {
 			dev_err(led->flash.led_cdev.dev,
 					"HW type %d is not supported\n", flash_data->hw_type);
