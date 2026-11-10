@@ -5124,6 +5124,14 @@ static int camss_parse_endpoint_node(struct device *dev,
 	for (i = 0; i < lncfg->num_data; i++) {
 		lncfg->data[i].pos = mipi_csi2->data_lanes[i];
 		lncfg->data[i].pol = mipi_csi2->lane_polarities[i + 1];
+
+		/* The CSIPHY is not programmed for other C-PHY line orders */
+		if (lncfg->phy_cfg == V4L2_MBUS_CSI2_CPHY &&
+		    mipi_csi2->line_orders[i] != V4L2_MBUS_CSI2_CPHY_LINE_ORDER_ABC) {
+			dev_err(dev, "Unsupported C-PHY line order %u on lane %u\n",
+				mipi_csi2->line_orders[i], i);
+			return -EINVAL;
+		}
 	}
 
 	return 0;
