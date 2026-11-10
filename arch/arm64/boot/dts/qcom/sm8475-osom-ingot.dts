@@ -397,6 +397,30 @@
 	status = "okay";
 };
 
+&cci1_i2c0 {
+	camera@1a {
+		compatible = "sony,imx481";
+		reg = <0x1a>;
+
+		clocks = <&camcc CAM_CC_MCLK5_CLK>;
+		assigned-clocks = <&camcc CAM_CC_MCLK5_CLK>;
+		assigned-clock-rates = <24000000>;
+
+		power-domains = <&camcc TITAN_TOP_GDSC>;
+
+		reset-gpios = <&tlmm 118 GPIO_ACTIVE_LOW>;
+
+		pinctrl-0 = <&cam_mclk5_default>, <&cam_front_reset_default>;
+		pinctrl-names = "default";
+
+		dovdd-supply = <&vreg_l3j_1p8>;
+		avdd-supply = <&vreg_l5j_2p8>;
+		dvdd-supply = <&vreg_l1j_1p056>;
+
+		orientation = <0>;
+	};
+};
+
 &gpi_dma0 {
 	status = "okay";
 };
@@ -685,6 +709,13 @@
 		drive-strength = <16>;
 		output-low;
 		bias-pull-down;
+	};
+
+	cam_front_reset_default: cam-front-reset-default-state {
+		pins = "gpio118";
+		function = "gpio";
+		drive-strength = <2>;
+		bias-disable;
 	};
 
 	cam_mclk5_default: cam-mclk5-default-state {
