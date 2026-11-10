@@ -494,6 +494,8 @@ static struct qseecom_shm *qseecom_shm_get(int fd)
 	} else {
 		shm->bridged = true;
 	}
+	pr_debug("buffer of fd %d: %pa, %zu bytes, SHM bridge %s\n", fd,
+		 &shm->paddr, shm->size, shm->bridged ? "created" : "reused");
 
 	shm->users = 1;
 	list_add_tail(&shm->node, &qseecom.shm_list);
@@ -1602,7 +1604,14 @@ static int qseecom_load_app(struct qseecom_dev_handle *data, void __user *argp)
 						    QSEECOM_VAL),
 				       args, &resp);
 		if (ret) {
-			pr_err("scm_call to load app failed\n");
+			/*
+			 * The call itself was refused: the first result word
+			 * is then QSEE's own (negative) reason.
+			 */
+			pr_err("scm_call to load app %s failed: %d, QSEE status %d (mdt %u, image %u bytes at %pa)\n",
+			       load_img_req.img_name, ret, (int)resp.result,
+			       load_img_req.mdt_len, load_img_req.img_len,
+			       &shm->paddr);
 			ret = -EINVAL;
 			goto loadapp_err;
 		}
