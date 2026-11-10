@@ -21,6 +21,8 @@
 
 #define SWRS_SCP_HOST_CLK_DIV2_CTL_BANK(m) (0xE0 + 0x10 * (m))
 
+#define WCD_INTR_MAX_RETRY	10
+
 int wcd_get_micb_vout_ctl_val(struct device *dev, u32 micb_mv)
 {
 	/* min micbias voltage is 1V and maximum is 2.85V */
@@ -126,15 +128,38 @@ int wcd_interrupt_callback(struct sdw_slave *slave, struct irq_domain *slave_irq
 		unsigned int wcd_intr_status2)
 {
 	struct regmap *regmap = dev_get_regmap(&slave->dev, NULL);
-	u32 sts1, sts2, sts3;
+	unsigned int sts1, sts2, sts3;
+	int count = 0;
+
+	/* The codec interrupt domain only exists once the codec is bound */
+	if (!slave_irq)
+		return IRQ_NONE;
 
 	do {
 		handle_nested_irq(irq_find_mapping(slave_irq, 0));
-		regmap_read(regmap, wcd_intr_status0, &sts1);
-		regmap_read(regmap, wcd_intr_status1, &sts2);
-		regmap_read(regmap, wcd_intr_status2, &sts3);
 
-	} while (sts1 || sts2 || sts3);
+		/*
+		 * Only the TX SoundWire device of the codec has a regmap, the
+		 * RX device does not. The nested handler reads and clears the
+		 * codec interrupt status through the TX regmap, so there is
+		 * nothing more to poll from here for the RX device.
+		 */
+		if (!regmap)
+			break;
+
+		if (regmap_read(regmap, wcd_intr_status0, &sts1) ||
+		    regmap_read(regmap, wcd_intr_status1, &sts2) ||
+		    regmap_read(regmap, wcd_intr_status2, &sts3))
+			break;
+
+		if (!sts1 && !sts2 && !sts3)
+			break;
+	} while (++count < WCD_INTR_MAX_RETRY);
+
+	if (count == WCD_INTR_MAX_RETRY)
+		dev_warn_ratelimited(&slave->dev,
+				     "interrupt status still set after %d retries\n",
+				     count);
 
 	return IRQ_HANDLED;
 }
