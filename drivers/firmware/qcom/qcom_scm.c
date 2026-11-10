@@ -78,18 +78,6 @@ struct qcom_scm_mem_map_info {
 	__le64 mem_size;
 };
 
-/**
- * struct qcom_scm_qseecom_resp - QSEECOM SCM call response.
- * @result:    Result or status of the SCM call. See &enum qcom_scm_qseecom_result.
- * @resp_type: Type of the response. See &enum qcom_scm_qseecom_resp_type.
- * @data:      Response data. The type of this data is given in @resp_type.
- */
-struct qcom_scm_qseecom_resp {
-	u64 result;
-	u64 resp_type;
-	u64 data;
-};
-
 enum qcom_scm_qseecom_result {
 	QSEECOM_RESULT_SUCCESS			= 0,
 	QSEECOM_RESULT_INCOMPLETE		= 1,
@@ -2155,6 +2143,58 @@ static int qcom_scm_qseecom_call(const struct qcom_scm_desc *desc,
 
 	return 0;
 }
+
+/**
+ * qcom_scm_qseecom_call_raw() - Perform a raw QSEECOM SCM call.
+ * @owner:   SMC owner of the call, e.g. the QSEE OS (50) or TZ apps (48).
+ * @svc:     Service identifier.
+ * @cmd:     Command identifier.
+ * @arginfo: Argument descriptor, encoded like QCOM_SCM_ARGS(); its low four
+ *           bits give the number of entries in @args.
+ * @args:    Call arguments. Buffer arguments must be physical addresses of
+ *           memory shared with the TrustZone (e.g. TZ memory).
+ * @res:     SCM call response (output).
+ *
+ * Performs a QSEECOM SCM call serialised against all other QSEECOM calls and
+ * returns the three result words to the caller without interpreting them.
+ * This is meant for drivers that implement the full QSEECOM protocol
+ * themselves, including incomplete, blocked-on-listener and callback
+ * results, which are not warned about here.
+ *
+ * Return: Zero if the SCM call itself completed, in which case @res holds the
+ * result words; a negative error code otherwise.
+ */
+int qcom_scm_qseecom_call_raw(u32 owner, u32 svc, u32 cmd, u32 arginfo,
+			      const u64 *args, struct qcom_scm_qseecom_resp *res)
+{
+	struct qcom_scm_desc desc = {
+		.owner = owner,
+		.svc = svc,
+		.cmd = cmd,
+		.arginfo = arginfo,
+	};
+	unsigned int nargs = arginfo & 0xf;
+	int status;
+
+	if (!qcom_scm_is_available())
+		return -ENODEV;
+
+	if (nargs > MAX_QCOM_SCM_ARGS || (nargs && !args) || !res)
+		return -EINVAL;
+
+	memcpy(desc.args, args, nargs * sizeof(*args));
+
+	mutex_lock(&qcom_scm_qseecom_call_lock);
+	status = __qcom_scm_qseecom_call(&desc, res);
+	mutex_unlock(&qcom_scm_qseecom_call_lock);
+
+	dev_dbg(__scm->dev, "%s: owner=%x, svc=%x, cmd=%x, result=%lld, type=%llx, data=%llx\n",
+		__func__, owner, svc, cmd, res->result, res->resp_type,
+		res->data);
+
+	return status;
+}
+EXPORT_SYMBOL_GPL(qcom_scm_qseecom_call_raw);
 
 /**
  * qcom_scm_qseecom_get_version() - Query the QSEECOM version.
