@@ -36,6 +36,7 @@
 #include <linux/elf.h>
 #include <linux/firmware/qcom/qcom_scm.h>
 #include <linux/firmware/qcom/qcom_tzmem.h>
+#include <linux/freezer.h>
 #include <linux/fs.h>
 #include <linux/iosys-map.h>
 #include <linux/miscdevice.h>
@@ -50,6 +51,7 @@
 #include <linux/slab.h>
 #include <linux/spinlock.h>
 #include <linux/string.h>
+#include <linux/suspend.h>
 #include <linux/uaccess.h>
 #include <linux/unaligned.h>
 #include <linux/wait.h>
@@ -346,6 +348,13 @@ struct qseecom_control {
 
 	struct mutex shm_lock;			/* protects shm_list */
 	struct list_head shm_list;
+
+	spinlock_t pm_lock;			/* protects pm_* below */
+	bool pm_suspending;
+	unsigned int pm_busy;
+	wait_queue_head_t pm_gate_wq;
+	wait_queue_head_t pm_idle_wq;
+	struct notifier_block pm_nb;
 };
 
 static DEFINE_MUTEX(app_access_lock);
@@ -355,6 +364,53 @@ static DEFINE_MUTEX(unload_app_pending_list_lock);
 static struct qseecom_control qseecom;
 
 static int __qseecom_unload_app(struct qseecom_dev_handle *data, u32 app_id);
+
+/*
+ * System sleep
+ *
+ * A client request can sleep, without being freezable, until a listener
+ * daemon has answered QSEE for the TA, and it may hold app_access_lock
+ * meanwhile, so that other clients sleep in mutex_lock(). Once the freezer
+ * has frozen the listener, the request never completes and system sleep
+ * fails after the freezer timeout. Making these sleeps freezable would leave
+ * QSEE in the middle of a request across sleep, with the lock held.
+ *
+ * So requests are quiesced before the freezer runs, while the listeners can
+ * still answer: from the PM notifier on, new client requests (and deferred
+ * app unloads) wait at entry, freezable and before taking any driver lock,
+ * and the notifier waits for those in progress to complete. Listener
+ * requests are never held back: requests in progress need them to complete.
+ */
+#define QSEECOM_PM_QUIESCE_TIMEOUT	(5 * HZ)
+
+static bool qseecom_pm_try_enter(void)
+{
+	guard(spinlock)(&qseecom.pm_lock);
+	if (qseecom.pm_suspending)
+		return false;
+	qseecom.pm_busy++;
+	return true;
+}
+
+static int qseecom_pm_enter(void)
+{
+	int ret;
+
+	while (!qseecom_pm_try_enter()) {
+		ret = wait_event_freezable(qseecom.pm_gate_wq,
+					   !READ_ONCE(qseecom.pm_suspending));
+		if (ret)
+			return ret;
+	}
+	return 0;
+}
+
+static void qseecom_pm_exit(void)
+{
+	guard(spinlock)(&qseecom.pm_lock);
+	if (!--qseecom.pm_busy && qseecom.pm_suspending)
+		wake_up_all(&qseecom.pm_idle_wq);
+}
 
 /*
  * Shared memory
@@ -2072,7 +2128,11 @@ static void __qseecom_processing_pending_unload_app(void)
 
 static void qseecom_unload_app_work(struct work_struct *work)
 {
+	/* Requeued when system sleep is over */
+	if (!qseecom_pm_try_enter())
+		return;
 	__qseecom_processing_pending_unload_app();
+	qseecom_pm_exit();
 }
 
 /*
@@ -2954,8 +3014,8 @@ static long qseecom_ioctl_send_cmd(struct qseecom_dev_handle *data,
 	return ret;
 }
 
-static long qseecom_ioctl(struct file *file, unsigned int cmd,
-			  unsigned long arg)
+static long __qseecom_ioctl(struct file *file, unsigned int cmd,
+			    unsigned long arg)
 {
 	struct qseecom_dev_handle *data = file->private_data;
 	void __user *argp = (void __user *)arg;
@@ -3244,6 +3304,46 @@ static long qseecom_ioctl(struct file *file, unsigned int cmd,
 	return ret;
 }
 
+/* Client requests: those that take app_access_lock, except listener ones */
+static bool qseecom_ioctl_is_client_req(unsigned int cmd)
+{
+	switch (cmd) {
+	case QSEECOM_IOCTL_SEND_CMD_REQ:
+	case QSEECOM_IOCTL_SEND_MODFD_CMD_REQ:
+	case QSEECOM_IOCTL_SEND_MODFD_CMD_64_REQ:
+	case QSEECOM_IOCTL_SET_MEM_PARAM_REQ:
+	case QSEECOM_IOCTL_LOAD_APP_REQ:
+	case QSEECOM_IOCTL_UNLOAD_APP_REQ:
+	case QSEECOM_IOCTL_PERF_ENABLE_REQ:
+	case QSEECOM_IOCTL_PERF_DISABLE_REQ:
+	case QSEECOM_IOCTL_APP_LOADED_QUERY_REQ:
+	case QSEECOM_IOCTL_SEND_CMD_SERVICE_REQ:
+		return true;
+	default:
+		return false;
+	}
+}
+
+static long qseecom_ioctl(struct file *file, unsigned int cmd,
+			  unsigned long arg)
+{
+	bool client_req = qseecom_ioctl_is_client_req(cmd);
+	long ret;
+
+	if (client_req) {
+		ret = qseecom_pm_enter();
+		if (ret)
+			return ret;
+	}
+
+	ret = __qseecom_ioctl(file, cmd, arg);
+
+	if (client_req)
+		qseecom_pm_exit();
+
+	return ret;
+}
+
 static int qseecom_open(struct inode *inode, struct file *file)
 {
 	struct qseecom_dev_handle *data;
@@ -3527,6 +3627,45 @@ static void qseecom_release_all(void)
 	}
 }
 
+static void qseecom_pm_resume(void)
+{
+	scoped_guard(spinlock, &qseecom.pm_lock)
+		qseecom.pm_suspending = false;
+	wake_up_all(&qseecom.pm_gate_wq);
+	/* Run the app unloads deferred meanwhile */
+	__wakeup_unload_app_kthread();
+}
+
+static int qseecom_pm_notify(struct notifier_block *nb, unsigned long action,
+			     void *unused)
+{
+	switch (action) {
+	case PM_HIBERNATION_PREPARE:
+	case PM_RESTORE_PREPARE:
+	case PM_SUSPEND_PREPARE:
+		scoped_guard(spinlock, &qseecom.pm_lock)
+			qseecom.pm_suspending = true;
+		if (!wait_event_timeout(qseecom.pm_idle_wq,
+					!READ_ONCE(qseecom.pm_busy),
+					QSEECOM_PM_QUIESCE_TIMEOUT)) {
+			/* The PM core sends no POST event to a failed notifier */
+			pr_warn("%u requests still waiting for QSEE after %u ms, aborting system sleep\n",
+				READ_ONCE(qseecom.pm_busy),
+				jiffies_to_msecs(QSEECOM_PM_QUIESCE_TIMEOUT));
+			qseecom_pm_resume();
+			return notifier_from_errno(-EBUSY);
+		}
+		return NOTIFY_OK;
+	case PM_POST_HIBERNATION:
+	case PM_POST_RESTORE:
+	case PM_POST_SUSPEND:
+		qseecom_pm_resume();
+		return NOTIFY_OK;
+	default:
+		return NOTIFY_DONE;
+	}
+}
+
 static int qseecom_probe(struct platform_device *pdev)
 {
 	struct qcom_tzmem_pool_config pool_config = {
@@ -3552,6 +3691,12 @@ static int qseecom_probe(struct platform_device *pdev)
 	INIT_WORK(&qseecom.unload_app_work, qseecom_unload_app_work);
 	mutex_init(&qseecom.shm_lock);
 	INIT_LIST_HEAD(&qseecom.shm_list);
+	spin_lock_init(&qseecom.pm_lock);
+	qseecom.pm_suspending = false;
+	qseecom.pm_busy = 0;
+	init_waitqueue_head(&qseecom.pm_gate_wq);
+	init_waitqueue_head(&qseecom.pm_idle_wq);
+	qseecom.pm_nb.notifier_call = qseecom_pm_notify;
 	qseecom.send_resp_flag = 0;
 	qseecom.app_block_ref_cnt = 0;
 	qseecom.qseos_version = QSEOS_VERSION_14;
@@ -3575,9 +3720,16 @@ static int qseecom_probe(struct platform_device *pdev)
 	qseecom.misc.name = QSEECOM_DEV_NAME;
 	qseecom.misc.fops = &qseecom_fops;
 	qseecom.misc.parent = dev;
-	ret = misc_register(&qseecom.misc);
+
+	ret = register_pm_notifier(&qseecom.pm_nb);
 	if (ret)
+		return dev_err_probe(dev, ret, "failed to register PM notifier\n");
+
+	ret = misc_register(&qseecom.misc);
+	if (ret) {
+		unregister_pm_notifier(&qseecom.pm_nb);
 		return dev_err_probe(dev, ret, "failed to register misc device\n");
+	}
 
 	dev_info(dev, "QSEE version 0x%x, whitelist %ssupported\n",
 		 qseecom.qsee_version, qseecom.whitelist_support ? "" : "not ");
@@ -3592,6 +3744,8 @@ static void qseecom_remove(struct platform_device *pdev)
 {
 	qseecom_log_exit();
 	misc_deregister(&qseecom.misc);
+	/* Before the work below: the notifier queues the unload work */
+	unregister_pm_notifier(&qseecom.pm_nb);
 
 	/* All files are closed: run what their release deferred. */
 	flush_work(&qseecom.unregister_lsnr_work);
