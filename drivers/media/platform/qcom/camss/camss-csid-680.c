@@ -8,6 +8,7 @@
 #include <linux/interrupt.h>
 #include <linux/io.h>
 #include <linux/kernel.h>
+#include <linux/module.h>
 
 #include "camss.h"
 #include "camss-csid.h"
@@ -114,6 +115,7 @@
 #define		CSI2_RX_CFG1_COMPLETE_STREAM_FRAME_TIMING	BIT(5)
 #define		CSI2_RX_CFG1_MISR_EN				BIT(6)
 #define		CSI2_RX_CFG1_CGC_MODE				BIT(7)
+#define		CSI2_RX_CFG1_EPD_MODE				BIT(8)
 
 #define CSID_CSI2_RX_CAPTURE_CTRL				0x208
 #define		CSI2_RX_CAPTURE_CTRL_LONG_PKT_EN		BIT(0)
@@ -183,6 +185,12 @@ static inline void csid_reg_update_clear(struct csid_device *csid,
 	writel(csid->reg_update, csid->base + CSID_REG_UPDATE_CMD);
 }
 
+/* DEBUG: bring-up knob, not for merging */
+static bool cphy_epd;
+module_param(cphy_epd, bool, 0644);
+MODULE_PARM_DESC(cphy_epd,
+		 "DEBUG: expect the Efficient Packet Delimiter on C-PHY links");
+
 static void __csid_configure_rx(struct csid_device *csid,
 				struct csid_phy_config *phy, int vc)
 {
@@ -212,6 +220,8 @@ static void __csid_configure_rx(struct csid_device *csid,
 	val = CSI2_RX_CFG1_PACKET_ECC_CORRECTION_EN;
 	if (vc > 3)
 		val |= CSI2_RX_CFG1_VC_MODE;
+	if (cphy_epd && phy->phy_sel == CSID_PHY_SEL_CPHY)
+		val |= CSI2_RX_CFG1_EPD_MODE;
 	writel(val, csid->base + CSID_CSI2_RX_CFG1);
 }
 

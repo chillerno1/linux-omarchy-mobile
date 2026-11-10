@@ -15,6 +15,7 @@
 #include <linux/interrupt.h>
 #include <linux/io.h>
 #include <linux/media-bus-format.h>
+#include <linux/module.h>
 
 #define CSIPHY_3PH_LNn_CFG1(n)			(0x000 + 0x100 * (n))
 #define CSIPHY_3PH_LNn_CFG1_SWI_REC_DLY_PRG	(BIT(7) | BIT(6))
@@ -63,6 +64,12 @@
 #define CSIPHY_3PH_TRIO_STATUS		86
 
 #define CSIPHY_3PH_MAX_TRIOS		3
+
+/* DEBUG: bring-up knob, not for merging */
+static int cphy_settle_cnt = -1;
+module_param(cphy_settle_cnt, int, 0644);
+MODULE_PARM_DESC(cphy_settle_cnt,
+		 "DEBUG: C-PHY settle count to use instead of the computed one (-1: computed)");
 
 #define CSIPHY_DEFAULT_PARAMS		0
 #define CSIPHY_LANE_ENABLE		1
@@ -1763,6 +1770,8 @@ static int csiphy_lanes_enable(struct csiphy_device *csiphy,
 	}
 
 	settle_cnt = csiphy_settle_cnt_calc(link_freq, csiphy->timer_clk_rate);
+	if (c->phy_cfg == V4L2_MBUS_CSI2_CPHY && cphy_settle_cnt >= 0)
+		settle_cnt = cphy_settle_cnt;
 
 	val = csiphy_get_lane_mask(c);
 	dev_dbg(dev, "CSIPHY%u: %s, %d lanes, lane mask 0x%02x, link freq %lld Hz, timer %u Hz, settle count %u\n",
