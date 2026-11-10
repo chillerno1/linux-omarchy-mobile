@@ -190,8 +190,10 @@ static void __csid_configure_rx(struct csid_device *csid,
 	struct camss *camss;
 
 	camss = csid->camss;
+	/* For C-PHY the lane count and lane inputs are trios */
 	val = (phy->lane_cnt - 1) << CSI2_RX_CFG0_NUM_ACTIVE_LANES;
 	val |= phy->lane_assign << CSI2_RX_CFG0_DL0_INPUT_SEL;
+	val |= phy->phy_sel << CSI2_RX_CFG0_PHY_TYPE_SEL;
 
 	if (camss->tpg && csid->tpg_linked &&
 	    camss->tpg[phy->csiphy_id].testgen.mode != TPG_PAYLOAD_MODE_DISABLED) {
@@ -203,6 +205,9 @@ static void __csid_configure_rx(struct csid_device *csid,
 	}
 
 	writel(val, csid->base + CSID_CSI2_RX_CFG0);
+	dev_dbg(camss->dev, "CSID%u: %s, %u lanes, lane assign 0x%x, RX_CFG0 0x%08x\n",
+		csid->id, phy->phy_sel == CSID_PHY_SEL_CPHY ? "C-PHY" : "D-PHY",
+		phy->lane_cnt, phy->lane_assign, val);
 
 	val = CSI2_RX_CFG1_PACKET_ECC_CORRECTION_EN;
 	if (vc > 3)
@@ -299,6 +304,15 @@ static void __csid_configure_rdi_stream(struct csid_device *csid, u8 enable, u8 
 static void csid_configure_stream(struct csid_device *csid, u8 enable)
 {
 	int i;
+
+	if (!enable)
+		dev_dbg(csid->camss->dev,
+			"CSID%u: RX packets %u, ECC stats 0x%08x, CRC errors %u, RX IRQ status 0x%08x\n",
+			csid->id,
+			readl(csid->base + CSID_CSI2_RX_TOTAL_PKTS_RCVD),
+			readl(csid->base + CSID_CSI2_RX_STATS_ECC),
+			readl(csid->base + CSID_CSI2_RX_CRC_ERRORS) & 0xffff,
+			readl(csid->base + CSID_CSI2_RX_IRQ_STATUS));
 
 	__csid_configure_top(csid);
 
