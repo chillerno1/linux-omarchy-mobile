@@ -5503,6 +5503,29 @@ module_param_named(dbg_defer_wmm, ath11k_dbg_defer_wmm, bool, 0644);
 MODULE_PARM_DESC(dbg_defer_wmm,
 		 "DEBUG: only send WMM parameters to started vdevs (Default: false)");
 
+/*
+ * DEBUG: the same handler also crashes on a started vdev (during
+ * authentication), so allow not sending WMM parameters at all and
+ * leaving the firmware defaults in place.
+ */
+static bool ath11k_dbg_skip_wmm;
+module_param_named(dbg_skip_wmm, ath11k_dbg_skip_wmm, bool, 0644);
+MODULE_PARM_DESC(dbg_skip_wmm,
+		 "DEBUG: never send WMM parameters to the firmware (Default: false)");
+
+/*
+ * DEBUG: creating the P2P device vdev makes the firmware assert in
+ * cmnos_thread.c (line 559), so allow not offering P2P interfaces.
+ */
+static bool ath11k_dbg_no_p2p;
+module_param_named(dbg_no_p2p, ath11k_dbg_no_p2p, bool, 0444);
+MODULE_PARM_DESC(dbg_no_p2p,
+		 "DEBUG: do not advertise P2P device/client/GO interfaces (Default: false)");
+
+#define ATH11K_DBG_P2P_IFTYPES	(BIT(NL80211_IFTYPE_P2P_DEVICE) | \
+				 BIT(NL80211_IFTYPE_P2P_CLIENT) | \
+				 BIT(NL80211_IFTYPE_P2P_GO))
+
 static void ath11k_mac_dbg_flush_wmm(struct ath11k *ar, struct ath11k_vif *arvif)
 {
 	int ret;
@@ -5511,6 +5534,11 @@ static void ath11k_mac_dbg_flush_wmm(struct ath11k *ar, struct ath11k_vif *arvif
 
 	if (!arvif->dbg_wmm_pending)
 		return;
+
+	if (ath11k_dbg_skip_wmm) {
+		arvif->dbg_wmm_pending = false;
+		return;
+	}
 
 	arvif->dbg_wmm_pending = false;
 	ath11k_info(ar->ab, "DEBUG: sending deferred WMM parameters for vdev %d\n",
@@ -5558,6 +5586,13 @@ static int ath11k_mac_op_conf_tx(struct ieee80211_hw *hw,
 	p->cwmax = params->cw_max;
 	p->aifs = params->aifs;
 	p->txop = params->txop;
+
+	if (ath11k_dbg_skip_wmm) {
+		ath11k_info(ar->ab, "DEBUG: not sending WMM parameters (ac %u) for vdev %d\n",
+			    ac, arvif->vdev_id);
+		ret = ath11k_conf_tx_uapsd(ar, vif, ac, params->uapsd);
+		goto exit;
+	}
 
 	if (ath11k_dbg_defer_wmm && !arvif->is_started) {
 		ath11k_info(ar->ab, "DEBUG: holding back WMM parameters (ac %u) for vdev %d until it is started\n",
@@ -10344,7 +10379,8 @@ static int ath11k_mac_setup_iface_combinations(struct ath11k *ar)
 	int n_limits, n_combos;
 	bool p2p;
 
-	p2p = ab->hw_params.interface_modes & BIT(NL80211_IFTYPE_P2P_DEVICE);
+	p2p = ab->hw_params.interface_modes & BIT(NL80211_IFTYPE_P2P_DEVICE) &&
+	      !ath11k_dbg_no_p2p;
 
 	if (ab->hw_params.support_dual_stations)
 		n_combos = 2;
@@ -10536,6 +10572,10 @@ static int __ath11k_mac_register(struct ath11k *ar)
 	ar->hw->wiphy->available_antennas_tx = cap->tx_chain_mask;
 
 	ar->hw->wiphy->interface_modes = ab->hw_params.interface_modes;
+	if (ath11k_dbg_no_p2p) {
+		ath11k_info(ab, "DEBUG: not advertising P2P interfaces\n");
+		ar->hw->wiphy->interface_modes &= ~ATH11K_DBG_P2P_IFTYPES;
+	}
 
 	if (ab->hw_params.single_pdev_only && ar->supports_6ghz)
 		ieee80211_hw_set(ar->hw, SINGLE_SCAN_ON_ALL_BANDS);
