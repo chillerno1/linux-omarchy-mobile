@@ -393,6 +393,23 @@
 	};
 };
 
+&camss {
+	vdda-phy-supply = <&vreg_l5b_0p88>;
+	vdda-pll-supply = <&vreg_l10c_1p2>;
+
+	status = "okay";
+
+	ports {
+		port@5 {
+			csiphy5_ep: endpoint {
+				clock-lanes = <7>;
+				data-lanes = <0 1 2 3>;
+				remote-endpoint = <&front_cam_ep>;
+			};
+		};
+	};
+};
+
 &cci1 {
 	status = "okay";
 };
@@ -418,6 +435,14 @@
 		dvdd-supply = <&vreg_l1j_1p056>;
 
 		orientation = <0>;
+
+		port {
+			front_cam_ep: endpoint {
+				data-lanes = <1 2 3 4>;
+				link-frequencies = /bits/ 64 <918000000>;
+				remote-endpoint = <&csiphy5_ep>;
+			};
+		};
 	};
 };
 
