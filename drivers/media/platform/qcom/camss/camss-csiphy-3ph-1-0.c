@@ -1221,6 +1221,7 @@ static bool csiphy_is_gen2(u32 version)
 	case CAMSS_8300:
 	case CAMSS_845:
 	case CAMSS_8450:
+	case CAMSS_8475:
 	case CAMSS_8550:
 	case CAMSS_8650:
 	case CAMSS_8775P:
@@ -1291,6 +1292,7 @@ static void csiphy_lanes_enable(struct csiphy_device *csiphy,
 		}
 		break;
 	case CAMSS_8450:
+	case CAMSS_8475:
 	case CAMSS_X1E80100:
 		if (c->phy_cfg == V4L2_MBUS_CSI2_DPHY) {
 			regs->lane_regs = &lane_regs_x1e80100[0];
@@ -1391,6 +1393,7 @@ static int csiphy_init(struct csiphy_device *csiphy)
 
 	switch (csiphy->camss->res->version) {
 	case CAMSS_8450:
+	case CAMSS_8475:
 	case CAMSS_X1E80100:
 	case CAMSS_8550:
 	case CAMSS_8650:

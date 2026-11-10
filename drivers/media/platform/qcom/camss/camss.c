@@ -6053,6 +6053,24 @@ static const struct camss_resources sm8450_resources = {
 	.vfe_num = ARRAY_SIZE(vfe_res_sm8450),
 };
 
+/*
+ * SM8475 has the SM8450 camera subsystem with a later CSIPHY revision (2.1.3
+ * instead of 2.1.0), so it shares the SM8450 resource tables.
+ */
+static const struct camss_resources sm8475_resources = {
+	.version = CAMSS_8475,
+	.pd_name = "top",
+	.csiphy_res = csiphy_res_sm8450,
+	.csid_res = csid_res_sm8450,
+	.vfe_res = vfe_res_sm8450,
+	.csid_wrapper_res = &csid_wrapper_res_sm8550,
+	.icc_res = icc_res_sm8450,
+	.icc_path_num = ARRAY_SIZE(icc_res_sm8450),
+	.csiphy_num = ARRAY_SIZE(csiphy_res_sm8450),
+	.csid_num = ARRAY_SIZE(csid_res_sm8450),
+	.vfe_num = ARRAY_SIZE(vfe_res_sm8450),
+};
+
 static const struct camss_resources sm8550_resources = {
 	.version = CAMSS_8550,
 	.pd_name = "top",
@@ -6114,6 +6132,7 @@ static const struct of_device_id camss_dt_match[] = {
 	{ .compatible = "qcom,sm6350-camss", .data = &sm6350_resources },
 	{ .compatible = "qcom,sm8250-camss", .data = &sm8250_resources },
 	{ .compatible = "qcom,sm8450-camss", .data = &sm8450_resources },
+	{ .compatible = "qcom,sm8475-camss", .data = &sm8475_resources },
 	{ .compatible = "qcom,sm8550-camss", .data = &sm8550_resources },
 	{ .compatible = "qcom,sm8650-camss", .data = &sm8650_resources },
 	{ .compatible = "qcom,x1e80100-camss", .data = &x1e80100_resources },
