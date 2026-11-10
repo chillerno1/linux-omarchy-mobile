@@ -58,6 +58,10 @@
 	compatible = "qcom,sm8475-camcc";
 };
 
+&camss {
+	compatible = "qcom,sm8475-camss", "qcom,sm8450-camss";
+};
+
 &dispcc {
 	compatible = "qcom,sm8475-dispcc";
 };
