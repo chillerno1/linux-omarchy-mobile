@@ -22,7 +22,6 @@
 #include <linux/module.h>
 #include <linux/mutex.h>
 #include <linux/netlink.h>
-#include <linux/notifier.h>
 #include <linux/platform_device.h>
 #include <linux/pm.h>
 #include <linux/pm_wakeirq.h>
@@ -100,7 +99,6 @@ struct bf_fp {
 	struct gpio_desc *reset;
 	int irq;
 	struct miscdevice misc;
-	struct notifier_block nl_notifier;
 
 	atomic_long_t irq_total;
 
@@ -175,7 +173,13 @@ static irqreturn_t bf_fp_irq(int irq, void *data)
 	return IRQ_HANDLED;
 }
 
-/* The library registers itself by sending any message on the socket. */
+/*
+ * The library registers itself by sending any message on the socket. It
+ * sends that message from a short-lived socket bound to its PID, closes it,
+ * then listens on a second socket bound to the same PID. So the port must
+ * outlive the socket that registered it: it is kept until the next
+ * registration, and a send to a port nobody holds just fails.
+ */
 static void bf_fp_nl_recv(struct sk_buff *skb)
 {
 	struct bf_fp *fp;
@@ -199,24 +203,6 @@ static void bf_fp_nl_recv(struct sk_buff *skb)
 	mutex_unlock(&fp->lock);
 
 	dev_dbg(fp->dev, "netlink listener %u\n", NETLINK_CB(skb).portid);
-}
-
-static int bf_fp_nl_event(struct notifier_block *nb, unsigned long event,
-			  void *ptr)
-{
-	struct bf_fp *fp = container_of(nb, struct bf_fp, nl_notifier);
-	struct netlink_notify *n = ptr;
-
-	if (event != NETLINK_URELEASE || !net_eq(n->net, &init_net))
-		return NOTIFY_DONE;
-
-	mutex_lock(&fp->lock);
-	if (fp->nl_sk && n->protocol == fp->nl_proto &&
-	    n->portid == fp->nl_portid)
-		fp->nl_portid = 0;
-	mutex_unlock(&fp->lock);
-
-	return NOTIFY_DONE;
 }
 
 static void bf_fp_nl_close(struct bf_fp *fp)
@@ -265,13 +251,6 @@ static void bf_fp_nl_cleanup(void *data)
 	mutex_lock(&fp->lock);
 	bf_fp_nl_close(fp);
 	mutex_unlock(&fp->lock);
-}
-
-static void bf_fp_nl_notifier_unregister(void *data)
-{
-	struct bf_fp *fp = data;
-
-	netlink_unregister_notifier(&fp->nl_notifier);
 }
 
 static int bf_fp_create_input(struct bf_fp *fp)
@@ -581,14 +560,6 @@ static int bf_fp_probe(struct platform_device *pdev)
 				     "cannot get reset GPIO\n");
 	usleep_range(5000, 6000);
 	bf_fp_reset_pulse(fp);
-
-	fp->nl_notifier.notifier_call = bf_fp_nl_event;
-	ret = netlink_register_notifier(&fp->nl_notifier);
-	if (ret)
-		return ret;
-	ret = devm_add_action_or_reset(dev, bf_fp_nl_notifier_unregister, fp);
-	if (ret)
-		return ret;
 
 	/* Runs after the IRQ is freed, so the handler never sees a stale socket */
 	ret = devm_add_action_or_reset(dev, bf_fp_nl_cleanup, fp);
