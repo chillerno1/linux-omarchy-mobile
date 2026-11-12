@@ -1190,14 +1190,16 @@
 /*
  * The VA macro provides the frame sync clock the other macros run from, and
  * it clocks and decimates the two digital microphones: the pair on DMIC1
- * (LPI gpio6/7) and the pair on DMIC4 (LPI gpio17/18).
+ * (LPI gpio6/7) and the pair on DMIC4 (LPI gpio17/18). The microphones are
+ * clocked at 2.4 MHz, the rate the vendor's recording paths use; at 600 kHz
+ * (its low-power voice wake-up rate) they deliver only zeros here.
  */
 &vamacro {
 	pinctrl-0 = <&dmic01_default>, <&dmic67_default>;
 	pinctrl-names = "default";
 
 	vdd-micb-supply = <&vreg_s10b_1p8>;
-	qcom,dmic-sample-rate = <600000>;
+	qcom,dmic-sample-rate = <2400000>;
 
 	status = "okay";
 };
