@@ -6,6 +6,8 @@
 /dts-v1/;
 
 #include <dt-bindings/gpio/gpio.h>
+#include <dt-bindings/input/input.h>
+#include <dt-bindings/interrupt-controller/irq.h>
 #include "zuma.dtsi"
 
 / {
@@ -55,8 +57,11 @@
 		 * hang that never panics lasts until someone resets the phone
 		 * with its buttons: panic on soft and hard lockups and on RCU
 		 * stalls, so that panic=10 resets the phone by itself.
+		 * mem_sleep_default=s2idle: the firmware offers PSCI system
+		 * suspend, so "mem" would otherwise mean "deep", which needs a
+		 * PMU sleep sequence the kernel doesn't have yet.
 		 */
-		bootargs = "console=tty0 fbcon=font:TER16x32 reboot=warm panic=10 softlockup_panic=1 nmi_watchdog=panic sysctl.kernel.panic_on_rcu_stall=1 clk_ignore_unused pd_ignore_unused rdinit=/init";
+		bootargs = "console=tty0 fbcon=font:TER16x32 reboot=warm panic=10 softlockup_panic=1 nmi_watchdog=panic sysctl.kernel.panic_on_rcu_stall=1 clk_ignore_unused pd_ignore_unused rdinit=/init mem_sleep_default=s2idle";
 		#address-cells = <2>;
 		#size-cells = <1>;
 		ranges;
@@ -74,7 +79,54 @@
 			height = <2400>;
 			stride = <(1080 * 4)>;
 			format = "a8r8g8b8";
+			panel = <&panel0>;
 		};
+	};
+
+	gpio-keys {
+		compatible = "gpio-keys";
+		pinctrl-0 = <&key_voldown>, <&key_volup>, <&key_power>;
+		pinctrl-names = "default";
+
+		button-vol-down {
+			label = "KEY_VOLUMEDOWN";
+			linux,code = <KEY_VOLUMEDOWN>;
+			gpios = <&gpa4 1 GPIO_ACTIVE_LOW>;
+			wakeup-source;
+		};
+
+		button-vol-up {
+			label = "KEY_VOLUMEUP";
+			linux,code = <KEY_VOLUMEUP>;
+			gpios = <&gpa6 2 GPIO_ACTIVE_LOW>;
+			wakeup-source;
+		};
+
+		button-power {
+			label = "KEY_POWER";
+			linux,code = <KEY_POWER>;
+			gpios = <&gpa4 0 GPIO_ACTIVE_LOW>;
+			wakeup-source;
+		};
+	};
+
+	/*
+	 * Without a panel node simpledrm estimates the display's physical
+	 * size from its pixels at 96 dpi: 285x635 mm instead of 64x141 mm,
+	 * which sizes everything that works in millimetres (the on-screen
+	 * keyboard) wrongly. simpledrm only reads width-mm and height-mm from
+	 * this node. It stays disabled so that fw_devlink does not make the
+	 * framebuffer wait for a driver this node will never have. 64x141 mm
+	 * is the lit area, measured with a ruler on a Pixel 8a, as for a
+	 * 6.1-inch 20:9 panel; Google's touch node has panel-height-mm = 141.
+	 * Stock's figure is larger than the glass: Google's panel-google-ak3b.c
+	 * gives the ak3b 70x149 mm, and the stock phone's DPI follows from it
+	 * (xDpi 391.885, yDpi 409.127 for 1080x2400).
+	 */
+	panel0: panel {
+		status = "disabled";
+		width-mm = <64>;
+		height-mm = <141>;
 	};
 
 	reserved-memory {
@@ -86,6 +138,58 @@
 			reg = <0x0 0xfac00000 (1080 * 2400 * 4)>;
 			no-map;
 		};
+	};
+};
+
+/*
+ * The main PMIC, behind the ACPM firmware. Its regulators are described
+ * with their consumers, which run them through the firmware. The touch
+ * controller's avdd is 3.0 V here (the stock phone's LDO4M), not the
+ * Pixel 8 Pro's 3.3 V.
+ */
+&acpm_ipc {
+	pmic-1 {
+		compatible = "samsung,s2mpg14-pmic";
+
+		regulators {
+			touch_avdd: ldo4m {
+				regulator-name = "touch-avdd";
+				regulator-min-microvolt = <3000000>;
+				regulator-max-microvolt = <3000000>;
+			};
+
+			touch_vdd: ldo25m {
+				regulator-name = "touch-vdd";
+				regulator-min-microvolt = <1800000>;
+				regulator-max-microvolt = <1800000>;
+			};
+		};
+	};
+};
+
+&spi20 {
+	status = "okay";
+
+	/*
+	 * Goodix GT9895 (Berlin), the Pixel 7a's controller: both of stock's
+	 * firmware files (goodix_firmware_ak3a.bin and _ak3b.bin) say "9895".
+	 * Wired as zuma-husky's touchscreen: 10 MHz, interrupt on gpn0-0
+	 * (falling edge, stock's goodix,irq-flags = 2), reset on gpp21-2.
+	 * avdd is LDO4M at 3.0 V and vddio LDO25M at 1.8 V, as on stock.
+	 */
+	touchscreen@0 {
+		compatible = "goodix,gt9895";
+		reg = <0>;
+		spi-max-frequency = <10000000>;
+		interrupt-parent = <&gpn0>;
+		interrupts = <0 IRQ_TYPE_EDGE_FALLING>;
+		reset-gpios = <&gpp21 2 GPIO_ACTIVE_LOW>;
+		avdd-supply = <&touch_avdd>;
+		vddio-supply = <&touch_vdd>;
+		touchscreen-size-x = <1080>;
+		touchscreen-size-y = <2400>;
+		pinctrl-names = "default";
+		pinctrl-0 = <&ts_irq &ts_reset>;
 	};
 };
 
@@ -112,5 +216,9 @@
 };
 
 &usbdrd_phy {
+	status = "okay";
+};
+
+&usi2_hsi0 {
 	status = "okay";
 };

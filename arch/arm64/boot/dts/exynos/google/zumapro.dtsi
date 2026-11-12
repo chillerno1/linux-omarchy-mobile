@@ -1425,8 +1425,9 @@
 			phys = <&ufs_phy>;
 			phy-names = "ufs-phy";
 			samsung,sysreg = <&sysreg_ufs 0x710>;
-			pinctrl-names = "default";
+			pinctrl-names = "default", "sleep";
 			pinctrl-0 = <&ufs_reset>, <&ufs_refclk>;
+			pinctrl-1 = <&ufs_reset>, <&ufs_refclk>;
 			lanes-per-direction = <2>;
 			dma-coherent;
 			status = "disabled";
@@ -1546,6 +1547,12 @@
 			clocks = <&oscclk>;
 			clock-names = "oscclk";
 			status = "disabled";
+		};
+
+		/* Latches the S2MPG14 PMIC's in-band interrupt (GIC SPI 74). */
+		sysreg_vgpio2ap: syscon@15090000 {
+			compatible = "google,zumapro-vgpio2ap-sysreg", "syscon";
+			reg = <0x0 0x15090000 0x1000>;
 		};
 
 		sysreg_apm: syscon@154204e0 {
