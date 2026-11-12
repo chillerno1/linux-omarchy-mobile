@@ -33,11 +33,13 @@ properties:
               - google,zuma-peric0-sysreg
               - google,zuma-peric1-sysreg
               - google,zuma-ufs-sysreg
+              - google,zuma-vgpio2ap-sysreg
               - google,zumapro-apm-sysreg
               - google,zumapro-hsi0-sysreg
               - google,zumapro-peric0-sysreg
               - google,zumapro-peric1-sysreg
               - google,zumapro-ufs-sysreg
+              - google,zumapro-vgpio2ap-sysreg
               - samsung,exynos2200-cmgp-sysreg
               - samsung,exynos2200-peric0-sysreg
               - samsung,exynos2200-peric1-sysreg
